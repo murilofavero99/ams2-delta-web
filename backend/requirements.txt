@@ -3,3 +3,6 @@ uvicorn[standard]
 pydantic
 requests
 numpy
+pandas
+anthropic
+plotly
