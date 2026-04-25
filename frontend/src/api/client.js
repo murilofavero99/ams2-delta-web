@@ -1,10 +1,10 @@
 /**
  * API client para comunicação com o backend FastAPI.
- *
- * Todas as chamadas passam pelo proxy do Vite (/api -> localhost:8000)
  */
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.PROD
+  ? 'https://ams2-delta-web-production.up.railway.app'
+  : '/api';
 
 async function fetchJSON(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
