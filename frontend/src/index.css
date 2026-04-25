@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-accent: 0 212 255;
+    --color-gain: 0 255 136;
+    --color-loss: 255 68 102;
+  }
+
+  body {
+    background-color: #0a0a0f;
+    overflow-x: hidden;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #2a2a3a;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3a4a;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-delta-card/80 backdrop-blur-xl border border-delta-border/50
+           rounded-2xl transition-all duration-300;
+  }
+
+  .glass-card:hover {
+    @apply border-delta-accent/30 shadow-lg;
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.05);
+  }
+
+  .metric-value {
+    @apply font-display font-bold tracking-tight;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .accent-glow {
+    box-shadow: 0 0 15px rgba(0, 212, 255, 0.2),
+                0 0 40px rgba(0, 212, 255, 0.05);
+  }
+
+  .gain-text { @apply text-delta-gain; }
+  .loss-text { @apply text-delta-loss; }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-fastest {
+    @apply badge bg-delta-accent/15 text-delta-accent border border-delta-accent/30;
+  }
+
+  .badge-complete {
+    @apply badge bg-delta-gain/15 text-delta-gain border border-delta-gain/30;
+  }
+
+  .badge-incomplete {
+    @apply badge bg-delta-loss/15 text-delta-loss border border-delta-loss/30;
+  }
+
+  .nav-link {
+    @apply flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
+           text-delta-muted transition-all duration-200;
+  }
+
+  .nav-link:hover {
+    @apply text-delta-text bg-delta-card;
+  }
+
+  .nav-link.active {
+    @apply text-delta-accent bg-delta-accent/10;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl
+           bg-delta-accent text-delta-bg font-display font-semibold text-sm
+           transition-all duration-200 hover:brightness-110 active:scale-95;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl
+           text-delta-muted font-medium text-sm border border-delta-border
+           transition-all duration-200 hover:text-delta-text hover:border-delta-accent/30;
+  }
+}
+
+/* Noise texture overlay */
+.noise-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.03;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
