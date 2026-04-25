@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "cd frontend && npm run dev",
-    "build": "cd frontend && npm install && npm run build",
+    "build": "cd frontend && npm install && npx vite build",
     "preview": "cd frontend && npm run preview"
   }
 }
