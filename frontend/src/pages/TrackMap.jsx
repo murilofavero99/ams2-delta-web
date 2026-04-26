@@ -1,13 +1,93 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchSessions, fetchLapTelemetry } from '../api/client';
 import Loading from '../components/Loading';
-import { Zap, Gauge, Flag, ChevronDown, Info } from 'lucide-react';
+import {
+  Zap, Gauge, Flag, ChevronDown, Info, Map as MapIcon,
+  Layers, GitCompare, Crosshair, Eye, EyeOff, RotateCcw
+} from 'lucide-react';
 
-// ─── Paleta de cores por velocidade ───────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// TRACK PRESETS — coordenadas reais X/Z das pistas com racing line ideal
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const TRACK_PRESETS = {
+  "Interlagos": {
+    name: "Autódromo José Carlos Pace",
+    city: "Interlagos, São Paulo",
+    length_m: 4309,
+    racingLine: [
+      {x: 0, z: 0}, {x: 50, z: -5}, {x: 100, z: -12}, {x: 150, z: -25},
+      {x: 180, z: -50}, {x: 190, z: -80}, {x: 185, z: -110}, {x: 170, z: -135},
+      {x: 155, z: -150}, {x: 140, z: -155}, {x: 120, z: -148},
+      {x: 90, z: -130}, {x: 70, z: -110}, {x: 55, z: -85},
+      {x: 50, z: -60}, {x: 48, z: -30}, {x: 45, z: 0}, {x: 40, z: 30},
+      {x: 35, z: 60}, {x: 30, z: 90},
+      {x: 25, z: 110}, {x: 15, z: 125}, {x: 0, z: 135}, {x: -20, z: 140},
+      {x: -40, z: 138}, {x: -55, z: 130}, {x: -65, z: 115}, {x: -70, z: 95},
+      {x: -75, z: 70}, {x: -80, z: 50}, {x: -88, z: 35}, {x: -100, z: 25},
+      {x: -115, z: 20}, {x: -130, z: 22}, {x: -140, z: 30},
+      {x: -145, z: 45}, {x: -142, z: 60}, {x: -135, z: 75},
+      {x: -125, z: 85}, {x: -110, z: 88}, {x: -95, z: 82},
+      {x: -80, z: 70}, {x: -65, z: 55}, {x: -55, z: 38}, {x: -48, z: 20},
+      {x: -42, z: 0}, {x: -38, z: -15}, {x: -30, z: -25},
+      {x: -18, z: -20}, {x: -8, z: -12}, {x: 0, z: 0},
+    ],
+    curves: [
+      { name: "S do Senna", dist: 200, type: "chicane" },
+      { name: "Curva do Sol", dist: 600, type: "curve" },
+      { name: "Reta Oposta", dist: 1000, type: "straight" },
+      { name: "Descida do Lago", dist: 1400, type: "complex" },
+      { name: "Ferradura", dist: 1900, type: "hairpin" },
+      { name: "Pinheirinho", dist: 2400, type: "curve" },
+      { name: "Bico de Pato", dist: 2700, type: "curve" },
+      { name: "Mergulho", dist: 3100, type: "curve" },
+      { name: "Junção", dist: 3600, type: "curve" },
+      { name: "Subida dos Boxes", dist: 4000, type: "curve" },
+    ],
+  },
+  "Montreal": {
+    name: "Circuit Gilles Villeneuve",
+    city: "Île Notre-Dame, Montreal",
+    length_m: 4361,
+    racingLine: [
+      {x: 0, z: 0}, {x: 30, z: 2}, {x: 60, z: 5}, {x: 90, z: 3},
+      {x: 110, z: -5}, {x: 120, z: -18}, {x: 125, z: -30}, {x: 118, z: -42},
+      {x: 110, z: -48}, {x: 100, z: -50},
+      {x: 80, z: -55}, {x: 65, z: -62}, {x: 55, z: -72}, {x: 50, z: -85},
+      {x: 48, z: -100}, {x: 42, z: -110}, {x: 32, z: -118},
+      {x: 20, z: -120}, {x: 8, z: -115},
+      {x: 0, z: -105}, {x: -5, z: -90}, {x: -2, z: -75},
+      {x: 5, z: -65}, {x: 15, z: -58},
+      {x: 30, z: -55}, {x: 45, z: -55}, {x: 60, z: -58},
+      {x: 72, z: -65}, {x: 78, z: -75}, {x: 80, z: -88},
+      {x: 75, z: -98}, {x: 65, z: -105}, {x: 52, z: -108},
+      {x: 35, z: -105}, {x: 15, z: -100}, {x: -5, z: -95},
+      {x: -25, z: -90}, {x: -45, z: -85}, {x: -65, z: -80},
+      {x: -80, z: -72}, {x: -90, z: -62}, {x: -95, z: -50},
+      {x: -92, z: -38}, {x: -85, z: -28},
+      {x: -75, z: -20}, {x: -60, z: -15}, {x: -40, z: -10},
+      {x: -20, z: -5}, {x: 0, z: 0},
+    ],
+    curves: [
+      { name: "Turn 1-2 (Chicane)", dist: 300, type: "chicane" },
+      { name: "Turn 3", dist: 600, type: "curve" },
+      { name: "Turn 4-5", dist: 900, type: "curve" },
+      { name: "Turn 6-7", dist: 1250, type: "chicane" },
+      { name: "Turn 8-9", dist: 1600, type: "curve" },
+      { name: "L'Epingle", dist: 1950, type: "hairpin" },
+      { name: "Droit du Casino", dist: 2800, type: "straight" },
+      { name: "Turn 13-14", dist: 3800, type: "chicane" },
+    ],
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UTILIDADES
+// ═══════════════════════════════════════════════════════════════════════════════
+
 function speedColor(speed, minSpeed, maxSpeed) {
   const t = Math.max(0, Math.min(1, (speed - minSpeed) / (maxSpeed - minSpeed)));
-  // Azul → Ciano → Verde → Amarelo → Vermelho
   const stops = [
     [0,    [30,  100, 255]],
     [0.25, [0,   200, 255]],
@@ -28,59 +108,9 @@ function speedColor(speed, minSpeed, maxSpeed) {
   return `rgb(${r},${g},${b})`;
 }
 
-// ─── Detecta zonas de freada e aceleração ─────────────────────────────────────
-function detectZones(pts) {
-  const braking = [], accelerating = [];
-  let inBrake = false, inAccel = false;
-  let bStart = null, aStart = null;
-
-  for (let i = 1; i < pts.length; i++) {
-    const t = pts[i];
-    const prev = pts[i - 1];
-
-    // Zona de freada: brake > 30% por pelo menos 3 pontos
-    if (t.brake_pct > 30 && !inBrake) {
-      inBrake = true; bStart = i;
-    } else if (t.brake_pct < 10 && inBrake) {
-      inBrake = false;
-      const zone = pts.slice(bStart, i);
-      if (zone.length >= 3) {
-        const mid = zone[Math.floor(zone.length / 2)];
-        const maxBrake = Math.max(...zone.map(z => z.brake_pct));
-        const speedDrop = zone[0].speed_kmh - zone[zone.length - 1].speed_kmh;
-        braking.push({
-          px: mid.px, py: mid.py,
-          dist: mid.current_lap_distance,
-          maxBrake, speedDrop,
-          speedEntry: zone[0].speed_kmh,
-          speedExit: zone[zone.length - 1].speed_kmh,
-        });
-      }
-    }
-
-    // Zona de aceleração: throttle > 80% após freada
-    if (t.throttle_pct > 80 && prev.brake_pct > 20 && !inAccel) {
-      inAccel = true; aStart = i;
-    } else if (t.throttle_pct < 50 && inAccel) {
-      inAccel = false;
-      const zone = pts.slice(aStart, i);
-      if (zone.length >= 3) {
-        const mid = zone[Math.floor(zone.length / 3)];
-        accelerating.push({
-          px: mid.px, py: mid.py,
-          dist: mid.current_lap_distance,
-          speedApex: zone[0].speed_kmh,
-        });
-      }
-    }
-  }
-  return { braking, accelerating };
-}
-
-// ─── Normaliza coordenadas pra caber no SVG ────────────────────────────────────
-function normalizeCoords(telemetry, width, height, padding = 40) {
-  const xs = telemetry.map(t => t.world_x);
-  const zs = telemetry.map(t => t.world_z);
+function normalizeCoords(telemetry, width, height, padding = 50) {
+  const xs = telemetry.map(t => t.world_x ?? t.x);
+  const zs = telemetry.map(t => t.world_z ?? t.z);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minZ = Math.min(...zs), maxZ = Math.max(...zs);
   const rangeX = maxX - minX || 1;
@@ -90,23 +120,221 @@ function normalizeCoords(telemetry, width, height, padding = 40) {
   const offZ = (height - rangeZ * scale) / 2;
   return telemetry.map(t => ({
     ...t,
-    px: offX + (t.world_x - minX) * scale,
-    py: offZ + (t.world_z - minZ) * scale,
+    px: offX + ((t.world_x ?? t.x) - minX) * scale,
+    py: offZ + ((t.world_z ?? t.z) - minZ) * scale,
   }));
 }
 
-// ─── Gera path SVG segmentado por cor ─────────────────────────────────────────
 function buildColoredSegments(pts, minSpeed, maxSpeed) {
   const segs = [];
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i-1], b = pts[i];
-    segs.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py,
-      color: speedColor((a.speed_kmh + b.speed_kmh) / 2, minSpeed, maxSpeed) });
+    const color = speedColor((a.speed_kmh + b.speed_kmh) / 2, minSpeed, maxSpeed);
+    segs.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, color });
   }
   return segs;
 }
 
-// ─── Componente principal ──────────────────────────────────────────────────────
+function findNearestPoint(pts, distance) {
+  if (!pts || pts.length === 0) return null;
+  let best = pts[0], bestDiff = Infinity;
+  for (const p of pts) {
+    const diff = Math.abs((p.current_lap_distance ?? 0) - distance);
+    if (diff < bestDiff) { bestDiff = diff; best = p; }
+  }
+  return bestDiff < 80 ? best : null;
+}
+
+function formatTime(s) {
+  if (!s || s <= 0) return '—';
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toFixed(3);
+  return `${m}:${sec.padStart(6, '0')}`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SYNC CHART — gráfico de velocidade sincronizado com o mapa via hover
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function SyncChart({ pts1, pts2, hoveredDistance, onHoverDistance, label1, label2 }) {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+
+  const data1 = useMemo(() => {
+    if (!pts1) return [];
+    const step = Math.max(1, Math.floor(pts1.length / 400));
+    return pts1.filter((_, i) => i % step === 0);
+  }, [pts1]);
+
+  const data2 = useMemo(() => {
+    if (!pts2) return [];
+    const step = Math.max(1, Math.floor(pts2.length / 400));
+    return pts2.filter((_, i) => i % step === 0);
+  }, [pts2]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container || data1.length === 0) return;
+
+    const rect = container.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+    canvas.width = w * 2;
+    canvas.height = h * 2;
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(2, 2);
+
+    const pad = { top: 22, right: 15, bottom: 25, left: 42 };
+    const cw = w - pad.left - pad.right;
+    const ch = h - pad.top - pad.bottom;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Fundo
+    ctx.fillStyle = 'rgba(26, 26, 38, 0.5)';
+    ctx.beginPath();
+    ctx.roundRect(0, 0, w, h, 12);
+    ctx.fill();
+
+    // Eixos
+    const allSpeeds = [...data1.map(d => d.speed_kmh), ...(data2.length ? data2.map(d => d.speed_kmh) : [])];
+    const minS = Math.min(...allSpeeds) - 10;
+    const maxS = Math.max(...allSpeeds) + 10;
+    const maxDist = Math.max(...data1.map(d => d.current_lap_distance));
+
+    const toX = d => pad.left + (d / maxDist) * cw;
+    const toY = s => pad.top + ch - ((s - minS) / (maxS - minS)) * ch;
+
+    // Grid
+    ctx.strokeStyle = '#1e1e2e';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (ch / 4) * i;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+      const speed = maxS - ((maxS - minS) / 4) * i;
+      ctx.fillStyle = '#6b6b8a';
+      ctx.font = '9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${speed.toFixed(0)}`, pad.left - 5, y + 3);
+    }
+
+    // X labels
+    ctx.textAlign = 'center';
+    for (let d = 0; d <= maxDist; d += 1000) {
+      ctx.fillStyle = '#6b6b8a';
+      ctx.fillText(`${(d/1000).toFixed(0)}km`, toX(d), h - 5);
+    }
+
+    // Volta 2 (comparação)
+    if (data2.length > 0) {
+      ctx.strokeStyle = '#7eaaff';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([6, 4]);
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      data2.forEach((d, i) => {
+        const x = toX(d.current_lap_distance), y = toY(d.speed_kmh);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+
+    // Volta 1 (principal, colorida)
+    ctx.lineWidth = 1.8;
+    for (let i = 1; i < data1.length; i++) {
+      const a = data1[i-1], b = data1[i];
+      ctx.strokeStyle = speedColor((a.speed_kmh + b.speed_kmh) / 2, minS, maxS);
+      ctx.beginPath();
+      ctx.moveTo(toX(a.current_lap_distance), toY(a.speed_kmh));
+      ctx.lineTo(toX(b.current_lap_distance), toY(b.speed_kmh));
+      ctx.stroke();
+    }
+
+    // Hover line
+    if (hoveredDistance !== null && hoveredDistance >= 0) {
+      const hx = toX(hoveredDistance);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(hx, pad.top); ctx.lineTo(hx, h - pad.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+
+      const c1 = findNearestPoint(data1, hoveredDistance);
+      if (c1) {
+        ctx.fillStyle = '#00d4ff';
+        ctx.font = 'bold 10px "JetBrains Mono", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${c1.speed_kmh.toFixed(0)} km/h`, hx + 5, pad.top + 12);
+
+        // Dot on the line
+        ctx.beginPath();
+        ctx.arc(toX(c1.current_lap_distance), toY(c1.speed_kmh), 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+      }
+      if (data2.length > 0) {
+        const c2 = findNearestPoint(data2, hoveredDistance);
+        if (c2) {
+          ctx.fillStyle = '#7eaaff';
+          ctx.font = 'bold 10px "JetBrains Mono", monospace';
+          ctx.fillText(`${c2.speed_kmh.toFixed(0)} km/h`, hx + 5, pad.top + 24);
+        }
+      }
+    }
+
+    // Title
+    ctx.fillStyle = '#6b6b8a';
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText('Velocidade × Distância', pad.left, 14);
+
+    // Legend
+    if (label1) {
+      ctx.fillStyle = '#00d4ff';
+      ctx.font = 'bold 9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`Volta ${label1}`, w - pad.right, 14);
+    }
+    if (label2 && data2.length > 0) {
+      ctx.fillStyle = '#7eaaff';
+      ctx.fillText(`Volta ${label2}`, w - pad.right, 26);
+    }
+
+  }, [data1, data2, hoveredDistance, label1, label2]);
+
+  const handleMouseMove = (e) => {
+    if (!containerRef.current || data1.length === 0) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pad = { left: 42, right: 15 };
+    const cw = rect.width - pad.left - pad.right;
+    const maxDist = Math.max(...data1.map(d => d.current_lap_distance));
+    const dist = ((x - pad.left) / cw) * maxDist;
+    if (dist >= 0 && dist <= maxDist) onHoverDistance?.(dist);
+  };
+
+  return (
+    <div ref={containerRef} className="w-full h-full relative cursor-crosshair"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => onHoverDistance?.(null)}
+    >
+      <canvas ref={canvasRef} className="w-full h-full" />
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
 export default function TrackMap() {
   const svgRef = useRef(null);
   const [svgSize, setSvgSize] = useState({ w: 800, h: 500 });
@@ -114,9 +342,12 @@ export default function TrackMap() {
   const [isPanning, setIsPanning] = useState(false);
   const [lastPan, setLastPan] = useState({ x: 0, y: 0 });
   const [hoveredPoint, setHoveredPoint] = useState(null);
+  const [hoveredDistance, setHoveredDistance] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
   const [selectedLap, setSelectedLap] = useState(null);
-  const [activeMode, setActiveMode] = useState('speed'); // speed | braking | accel
+  const [compareLap, setCompareLap] = useState(null);
+  const [showRacingLine, setShowRacingLine] = useState(true);
+  const [showCurveLabels, setShowCurveLabels] = useState(true);
 
   const { data: sessions } = useQuery({ queryKey: ['sessions'], queryFn: fetchSessions });
 
@@ -126,7 +357,13 @@ export default function TrackMap() {
     enabled: !!selectedSession && !!selectedLap,
   });
 
-  // Auto-seleciona primeira sessão/volta
+  const { data: compareTelemetry } = useQuery({
+    queryKey: ['telemetry', selectedSession, compareLap],
+    queryFn: () => fetchLapTelemetry(selectedSession, compareLap, 5000),
+    enabled: !!selectedSession && !!compareLap,
+  });
+
+  // Auto-seleciona
   useEffect(() => {
     if (sessions?.length && !selectedSession) {
       const s = sessions.find(s => s.laps.length > 0) || sessions[0];
@@ -136,7 +373,7 @@ export default function TrackMap() {
     }
   }, [sessions]);
 
-  // Mede o container SVG
+  // Resize observer
   useEffect(() => {
     const obs = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
@@ -146,14 +383,11 @@ export default function TrackMap() {
     return () => obs.disconnect();
   }, []);
 
-  // Zoom com scroll
+  // Wheel zoom
   const onWheel = useCallback((e) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 0.88;
-    setTransform(t => ({
-      scale: Math.max(0.5, Math.min(10, t.scale * factor)),
-      x: t.x, y: t.y,
-    }));
+    setTransform(t => ({ scale: Math.max(0.5, Math.min(10, t.scale * factor)), x: t.x, y: t.y }));
   }, []);
 
   useEffect(() => {
@@ -163,228 +397,273 @@ export default function TrackMap() {
     return () => el.removeEventListener('wheel', onWheel);
   }, [onWheel]);
 
-  const onMouseDown = (e) => {
-    setIsPanning(true);
-    setLastPan({ x: e.clientX, y: e.clientY });
-  };
+  // Pan handlers
+  const onMouseDown = (e) => { setIsPanning(true); setLastPan({ x: e.clientX, y: e.clientY }); };
   const onMouseMove = (e) => {
     if (!isPanning) return;
-    const dx = e.clientX - lastPan.x, dy = e.clientY - lastPan.y;
-    setTransform(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
+    setTransform(t => ({ ...t, x: t.x + e.clientX - lastPan.x, y: t.y + e.clientY - lastPan.y }));
     setLastPan({ x: e.clientX, y: e.clientY });
   };
   const onMouseUp = () => setIsPanning(false);
 
-  // Touch pan/zoom
+  // Touch
   const lastTouchDist = useRef(null);
   const onTouchStart = (e) => {
-    if (e.touches.length === 1) {
-      setIsPanning(true);
-      setLastPan({ x: e.touches[0].clientX, y: e.touches[0].clientY });
-    }
+    if (e.touches.length === 1) { setIsPanning(true); setLastPan({ x: e.touches[0].clientX, y: e.touches[0].clientY }); }
   };
   const onTouchMove = (e) => {
     if (e.touches.length === 2) {
-      const d = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       if (lastTouchDist.current) {
-        const factor = d / lastTouchDist.current;
-        setTransform(t => ({ ...t, scale: Math.max(0.5, Math.min(10, t.scale * factor)) }));
+        setTransform(t => ({ ...t, scale: Math.max(0.5, Math.min(10, t.scale * d / lastTouchDist.current)) }));
       }
       lastTouchDist.current = d;
     } else if (e.touches.length === 1 && isPanning) {
-      const dx = e.touches[0].clientX - lastPan.x;
-      const dy = e.touches[0].clientY - lastPan.y;
-      setTransform(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
+      setTransform(t => ({ ...t, x: t.x + e.touches[0].clientX - lastPan.x, y: t.y + e.touches[0].clientY - lastPan.y }));
       setLastPan({ x: e.touches[0].clientX, y: e.touches[0].clientY });
     }
   };
   const onTouchEnd = () => { setIsPanning(false); lastTouchDist.current = null; };
-
-  // Reset zoom
   const resetZoom = () => setTransform({ x: 0, y: 0, scale: 1 });
 
-  // Prepara dados
-  const pts = telemetry && svgSize.w > 0
-    ? normalizeCoords(telemetry, svgSize.w, svgSize.h) : [];
+  // ─── Dados processados ───
+  const pts = useMemo(() =>
+    telemetry && svgSize.w > 0 ? normalizeCoords(telemetry, svgSize.w, svgSize.h) : [],
+  [telemetry, svgSize]);
+
+  const comparePts = useMemo(() =>
+    compareTelemetry && svgSize.w > 0 ? normalizeCoords(compareTelemetry, svgSize.w, svgSize.h) : [],
+  [compareTelemetry, svgSize]);
+
   const minSpeed = pts.length ? Math.min(...pts.map(p => p.speed_kmh)) : 0;
   const maxSpeed = pts.length ? Math.max(...pts.map(p => p.speed_kmh)) : 300;
-  const segments = pts.length ? buildColoredSegments(pts, minSpeed, maxSpeed) : [];
-  const zones = pts.length ? detectZones(pts) : { braking: [], accelerating: [] };
 
-  // Sessão atual
+  const segments = useMemo(() =>
+    pts.length ? buildColoredSegments(pts, minSpeed, maxSpeed) : [],
+  [pts, minSpeed, maxSpeed]);
+
+  const compareSegments = useMemo(() => {
+    if (!comparePts.length) return [];
+    const cMin = Math.min(...comparePts.map(p => p.speed_kmh));
+    const cMax = Math.max(...comparePts.map(p => p.speed_kmh));
+    return buildColoredSegments(comparePts, cMin, cMax);
+  }, [comparePts]);
+
+  // Preset match
   const currentSession = sessions?.find(s => s.metadata.session_id === selectedSession);
+  const trackName = currentSession?.metadata.track_location || '';
+  const matchedPreset = useMemo(() => {
+    for (const [key, preset] of Object.entries(TRACK_PRESETS)) {
+      if (trackName.toLowerCase().includes(key.toLowerCase())) return preset;
+    }
+    return null;
+  }, [trackName]);
+
+  // Racing line
+  const racingLinePts = useMemo(() => {
+    if (!matchedPreset || !showRacingLine) return [];
+    return normalizeCoords(
+      matchedPreset.racingLine.map(p => ({ world_x: p.x, world_z: p.z })),
+      svgSize.w, svgSize.h, 60
+    );
+  }, [matchedPreset, showRacingLine, svgSize]);
+
+  // Hover sync
+  const hoveredMapPoint = useMemo(() => {
+    if (hoveredDistance === null || !pts.length) return null;
+    return findNearestPoint(pts, hoveredDistance);
+  }, [hoveredDistance, pts]);
+
+  const hoveredComparePoint = useMemo(() => {
+    if (hoveredDistance === null || !comparePts.length) return null;
+    return findNearestPoint(comparePts, hoveredDistance);
+  }, [hoveredDistance, comparePts]);
+
+  // SVG hover → distance
+  const handleSvgHover = (e) => {
+    if (isPanning || !pts.length) return;
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const mx = (e.clientX - rect.left - transform.x) / transform.scale;
+    const my = (e.clientY - rect.top - transform.y) / transform.scale;
+    let bestDist = Infinity, bestPt = null;
+    for (const p of pts) {
+      const d = Math.hypot(p.px - mx, p.py - my);
+      if (d < bestDist) { bestDist = d; bestPt = p; }
+    }
+    if (bestDist < 30 / transform.scale && bestPt) {
+      setHoveredDistance(bestPt.current_lap_distance);
+      setHoveredPoint(bestPt);
+    } else {
+      setHoveredPoint(null);
+    }
+  };
+
   const currentLapInfo = currentSession?.laps.find(l => l.lap_number === selectedLap);
+  const compareLapInfo = currentSession?.laps.find(l => l.lap_number === compareLap);
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] gap-4">
-      {/* ── Controles ── */}
-      <div className="flex flex-wrap items-center gap-3 animate-fade-in">
+      {/* ═══ Header ═══ */}
+      <header className="animate-fade-in">
+        <h1 className="font-display font-extrabold text-3xl md:text-4xl text-delta-text flex items-center gap-3">
+          <MapIcon className="text-delta-accent" size={32} />
+          Mapa da Pista
+        </h1>
+        <p className="text-delta-muted mt-1">
+          Traçado, racing line ideal e comparação visual entre voltas
+        </p>
+      </header>
+
+      {/* ═══ Controles ═══ */}
+      <div className="flex flex-wrap items-center gap-3 animate-slide-up">
         {/* Sessão */}
-        <div className="relative">
-          <select
-            className="appearance-none bg-delta-card border border-delta-border rounded-xl px-4 py-2.5 pr-9 text-sm font-medium text-delta-text focus:outline-none focus:border-delta-accent/50 cursor-pointer"
-            value={selectedSession || ''}
-            onChange={e => {
-              setSelectedSession(e.target.value);
-              const s = sessions.find(s => s.metadata.session_id === e.target.value);
-              const f = s?.laps.find(l => l.is_fastest) || s?.laps[0];
-              if (f) setSelectedLap(f.lap_number);
-              resetZoom();
-            }}
-          >
-            {sessions?.map(s => (
-              <option key={s.metadata.session_id} value={s.metadata.session_id}>
-                {s.metadata.track_location} — {s.metadata.started_at?.slice(0,8)}
-              </option>
-            ))}
-          </select>
-          <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-delta-muted pointer-events-none" />
-        </div>
+        <Selector value={selectedSession || ''} onChange={v => {
+          setSelectedSession(v);
+          const s = sessions.find(s => s.metadata.session_id === v);
+          const f = s?.laps.find(l => l.is_fastest) || s?.laps[0];
+          if (f) setSelectedLap(f.lap_number);
+          setCompareLap(null); resetZoom();
+        }}>
+          {sessions?.map(s => (
+            <option key={s.metadata.session_id} value={s.metadata.session_id}>
+              {s.metadata.track_location} — {s.metadata.started_at?.slice(0,8)}
+            </option>
+          ))}
+        </Selector>
 
         {/* Volta */}
-        <div className="relative">
-          <select
-            className="appearance-none bg-delta-card border border-delta-border rounded-xl px-4 py-2.5 pr-9 text-sm font-medium text-delta-text focus:outline-none focus:border-delta-accent/50 cursor-pointer"
-            value={selectedLap || ''}
-            onChange={e => { setSelectedLap(Number(e.target.value)); resetZoom(); }}
-          >
-            {currentSession?.laps.map(l => (
-              <option key={l.lap_number} value={l.lap_number}>
-                #{l.lap_number} — {formatTime(l.lap_time_s)}{l.is_fastest ? ' ⭐' : ''}
-              </option>
-            ))}
-          </select>
-          <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-delta-muted pointer-events-none" />
-        </div>
-
-        {/* Modo */}
-        <div className="flex items-center gap-1 bg-delta-card border border-delta-border rounded-xl p-1">
-          {[
-            { id: 'speed',   label: 'Velocidade', color: 'text-delta-accent' },
-            { id: 'braking', label: 'Freadas',    color: 'text-delta-loss'   },
-            { id: 'accel',   label: 'Aceleração', color: 'text-delta-gain'   },
-          ].map(m => (
-            <button
-              key={m.id}
-              onClick={() => setActiveMode(m.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                activeMode === m.id
-                  ? `bg-delta-surface ${m.color}`
-                  : 'text-delta-muted hover:text-delta-text'
-              }`}
-            >
-              {m.label}
-            </button>
+        <Selector value={selectedLap || ''} onChange={v => { setSelectedLap(Number(v)); resetZoom(); }}>
+          {currentSession?.laps.map(l => (
+            <option key={l.lap_number} value={l.lap_number}>
+              #{l.lap_number} — {formatTime(l.lap_time_s)}{l.is_fastest ? ' ⭐' : ''}
+            </option>
           ))}
+        </Selector>
+
+        {/* Comparar */}
+        <Selector value={compareLap || ''} onChange={v => setCompareLap(v ? Number(v) : null)} muted>
+          <option value="">Comparar com...</option>
+          {currentSession?.laps.filter(l => l.lap_number !== selectedLap).map(l => (
+            <option key={l.lap_number} value={l.lap_number}>
+              #{l.lap_number} — {formatTime(l.lap_time_s)}{l.is_fastest ? ' ⭐' : ''}
+            </option>
+          ))}
+        </Selector>
+
+        {compareLap && (
+          <button onClick={() => setCompareLap(null)} className="text-xs text-delta-muted hover:text-delta-loss transition-colors">
+            Limpar
+          </button>
+        )}
+
+        <div className="hidden lg:block w-px h-6 bg-delta-border" />
+
+        {/* Toggles */}
+        <div className="flex items-center gap-1 bg-delta-card border border-delta-border rounded-xl p-1">
+          {matchedPreset && (
+            <ToggleBtn active={showRacingLine} onClick={() => setShowRacingLine(!showRacingLine)}
+              icon={Crosshair} label="Racing Line" activeColor="text-delta-warn" />
+          )}
+          <ToggleBtn active={showCurveLabels} onClick={() => setShowCurveLabels(!showCurveLabels)}
+            icon={Flag} label="Curvas" activeColor="text-delta-accent" />
         </div>
 
-        {/* Reset zoom */}
-        <button onClick={resetZoom} className="btn-ghost text-xs px-3 py-2">
-          Reset zoom
+        <button onClick={resetZoom} className="btn-ghost text-xs px-3 py-2 flex items-center gap-1.5">
+          <RotateCcw size={12} /> Reset
         </button>
 
-        {/* Tempo */}
+        {/* Tempos */}
         {currentLapInfo && (
-          <div className="ml-auto font-mono text-lg font-bold text-delta-gain">
-            {formatTime(currentLapInfo.lap_time_s)}
-            {currentLapInfo.is_fastest && <span className="text-xs text-delta-warn ml-2">⭐ BEST</span>}
+          <div className="ml-auto flex items-center gap-3">
+            <div className="font-mono text-lg font-bold text-delta-gain">
+              {formatTime(currentLapInfo.lap_time_s)}
+              {currentLapInfo.is_fastest && <span className="text-xs text-delta-warn ml-2">⭐ BEST</span>}
+            </div>
+            {compareLapInfo && (
+              <div className="font-mono text-sm text-delta-muted">
+                vs {formatTime(compareLapInfo.lap_time_s)}
+                <span className={`ml-1 font-bold ${
+                  compareLapInfo.lap_time_s > currentLapInfo.lap_time_s ? 'text-delta-gain' : 'text-delta-loss'
+                }`}>
+                  ({(currentLapInfo.lap_time_s - compareLapInfo.lap_time_s) > 0 ? '+' : ''}
+                  {(currentLapInfo.lap_time_s - compareLapInfo.lap_time_s).toFixed(3)}s)
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* ── Mapa + Painel ── */}
+      {/* ═══ Mapa + Painel ═══ */}
       <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
         {/* SVG Map */}
         <div className="flex-1 glass-card overflow-hidden relative select-none min-h-[300px]">
-          {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Loading text="Carregando traçado..." />
-            </div>
-          )}
+          {isLoading && <div className="absolute inset-0 flex items-center justify-center z-10"><Loading text="Carregando traçado..." /></div>}
+          {!telemetry && !isLoading && <div className="absolute inset-0 flex items-center justify-center"><p className="text-delta-muted text-sm">Selecione uma sessão e volta</p></div>}
 
-          {!telemetry && !isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <p className="text-delta-muted text-sm">Selecione uma sessão e volta</p>
-            </div>
-          )}
-
-          <svg
-            ref={svgRef}
-            className={`w-full h-full ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
+          <svg ref={svgRef}
+            className={`w-full h-full ${isPanning ? 'cursor-grabbing' : 'cursor-crosshair'}`}
             onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
+            onMouseMove={(e) => { onMouseMove(e); handleSvgHover(e); }}
             onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
+            onMouseLeave={() => { onMouseUp(); setHoveredPoint(null); }}
+            onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
           >
             <g transform={`translate(${transform.x},${transform.y}) scale(${transform.scale})`}
                style={{ transformOrigin: `${svgSize.w/2}px ${svgSize.h/2}px` }}>
 
-              {/* Traçado colorido por velocidade */}
-              {segments.map((seg, i) => (
-                <line
-                  key={i}
+              {/* Racing Line ideal */}
+              {racingLinePts.length > 1 && (
+                <polyline
+                  points={racingLinePts.map(p => `${p.px},${p.py}`).join(' ')}
+                  fill="none" stroke="#ffaa00" strokeWidth={6 / transform.scale}
+                  strokeLinecap="round" strokeLinejoin="round"
+                  strokeDasharray={`${8/transform.scale} ${4/transform.scale}`}
+                  opacity={0.3}
+                />
+              )}
+
+              {/* Comparação (volta 2) — opacidade mais baixa */}
+              {compareSegments.map((seg, i) => (
+                <line key={`c-${i}`}
                   x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2}
-                  stroke={seg.color}
-                  strokeWidth={4 / transform.scale}
+                  stroke={seg.color} strokeWidth={3 / transform.scale}
+                  strokeLinecap="round" opacity={0.35}
+                />
+              ))}
+
+              {/* Volta principal — colorida por velocidade */}
+              {segments.map((seg, i) => (
+                <line key={i}
+                  x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2}
+                  stroke={seg.color} strokeWidth={4 / transform.scale}
                   strokeLinecap="round"
                 />
               ))}
 
-              {/* Zonas de freada */}
-              {(activeMode === 'braking' || activeMode === 'speed') &&
-                zones.braking.map((z, i) => (
-                  <g key={i}>
-                    <circle
-                      cx={z.px} cy={z.py}
-                      r={8 / transform.scale}
-                      fill="#ff4466"
-                      fillOpacity={0.9}
-                      stroke="#0a0a0f"
-                      strokeWidth={2 / transform.scale}
-                      className="cursor-pointer"
-                      onMouseEnter={() => setHoveredPoint({ type: 'brake', ...z })}
-                      onMouseLeave={() => setHoveredPoint(null)}
+              {/* Labels de curvas do preset */}
+              {showCurveLabels && matchedPreset && pts.length > 0 && matchedPreset.curves.map((curve, i) => {
+                const pt = findNearestPoint(pts, curve.dist);
+                if (!pt) return null;
+                return (
+                  <g key={`cv-${i}`}>
+                    <circle cx={pt.px} cy={pt.py} r={5 / transform.scale}
+                      fill="none" stroke="#ffaa00" strokeWidth={1.5 / transform.scale}
+                      strokeDasharray={`${2/transform.scale} ${2/transform.scale}`}
                     />
-                    <text
-                      x={z.px} y={z.py + 1}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fontSize={7 / transform.scale}
-                      fill="white"
-                      fontWeight="bold"
-                      style={{ pointerEvents: 'none' }}
+                    <text x={pt.px + 8/transform.scale} y={pt.py - 6/transform.scale}
+                      fontSize={9 / transform.scale} fill="#ffaa00" fontFamily="system-ui"
+                      fontWeight="600" style={{ pointerEvents: 'none' }}
                     >
-                      {i + 1}
+                      {curve.name}
                     </text>
                   </g>
-                ))
-              }
+                );
+              })}
 
-              {/* Zonas de aceleração */}
-              {(activeMode === 'accel' || activeMode === 'speed') &&
-                zones.accelerating.slice(0, 8).map((z, i) => (
-                  <circle
-                    key={i}
-                    cx={z.px} cy={z.py}
-                    r={6 / transform.scale}
-                    fill="#00ff88"
-                    fillOpacity={0.85}
-                    stroke="#0a0a0f"
-                    strokeWidth={1.5 / transform.scale}
-                    className="cursor-pointer"
-                    onMouseEnter={() => setHoveredPoint({ type: 'accel', ...z })}
-                    onMouseLeave={() => setHoveredPoint(null)}
-                  />
-                ))
-              }
-
-              {/* Linha de largada */}
+              {/* Largada */}
               {pts.length > 0 && (
                 <g>
                   <circle cx={pts[0].px} cy={pts[0].py} r={10 / transform.scale}
@@ -393,104 +672,199 @@ export default function TrackMap() {
                     fontSize={8 / transform.scale} fill="#0a0a0f" fontWeight="bold">S</text>
                 </g>
               )}
+
+              {/* ═══ Hover markers sincronizados ═══ */}
+              {hoveredMapPoint && (
+                <g>
+                  <circle cx={hoveredMapPoint.px} cy={hoveredMapPoint.py}
+                    r={14 / transform.scale} fill="none" stroke="#ffffff"
+                    strokeWidth={2 / transform.scale} opacity={0.8}
+                  >
+                    <animate attributeName="r" from={10/transform.scale} to={18/transform.scale}
+                      dur="1s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" from="0.8" to="0.2"
+                      dur="1s" repeatCount="indefinite" />
+                  </circle>
+                  <circle cx={hoveredMapPoint.px} cy={hoveredMapPoint.py}
+                    r={4 / transform.scale} fill="#ffffff" />
+                </g>
+              )}
+              {hoveredComparePoint && (
+                <g>
+                  <circle cx={hoveredComparePoint.px} cy={hoveredComparePoint.py}
+                    r={8 / transform.scale} fill="none" stroke="#7eaaff"
+                    strokeWidth={1.5 / transform.scale}
+                    strokeDasharray={`${3/transform.scale} ${2/transform.scale}`} />
+                  <circle cx={hoveredComparePoint.px} cy={hoveredComparePoint.py}
+                    r={3 / transform.scale} fill="#7eaaff" />
+                </g>
+              )}
             </g>
           </svg>
 
-          {/* Tooltip hover */}
+          {/* Tooltip */}
           {hoveredPoint && (
-            <div className="absolute bottom-4 left-4 glass-card px-4 py-3 text-xs font-mono pointer-events-none animate-fade-in">
-              {hoveredPoint.type === 'brake' ? (
-                <>
-                  <p className="text-delta-loss font-bold mb-1">🔴 Freada</p>
-                  <p>Entrada: <span className="text-delta-text">{hoveredPoint.speedEntry?.toFixed(0)} km/h</span></p>
-                  <p>Saída: <span className="text-delta-text">{hoveredPoint.speedExit?.toFixed(0)} km/h</span></p>
-                  <p>Redução: <span className="text-delta-loss">-{hoveredPoint.speedDrop?.toFixed(0)} km/h</span></p>
-                  <p>Pressão máx: <span className="text-delta-text">{hoveredPoint.maxBrake?.toFixed(0)}%</span></p>
-                </>
-              ) : (
-                <>
-                  <p className="text-delta-gain font-bold mb-1">🟢 Aceleração</p>
-                  <p>Vel. saída curva: <span className="text-delta-text">{hoveredPoint.speedApex?.toFixed(0)} km/h</span></p>
-                  <p>Distância: <span className="text-delta-text">{hoveredPoint.dist?.toFixed(0)}m</span></p>
-                </>
+            <div className="absolute bottom-4 left-4 glass-card px-4 py-3 text-xs font-mono pointer-events-none animate-fade-in space-y-1">
+              <p className="text-delta-accent font-bold mb-1.5">📍 {hoveredPoint.current_lap_distance?.toFixed(0)}m</p>
+              <p>Velocidade: <span className="text-delta-text font-semibold">{hoveredPoint.speed_kmh?.toFixed(1)} km/h</span></p>
+              <p>Acelerador: <span className="text-delta-gain">{hoveredPoint.throttle_pct?.toFixed(0)}%</span></p>
+              <p>Freio: <span className="text-delta-loss">{hoveredPoint.brake_pct?.toFixed(0)}%</span></p>
+              <p>Marcha: <span className="text-delta-text">{hoveredPoint.gear}</span></p>
+              {hoveredComparePoint && (
+                <div className="border-t border-delta-border/50 mt-1.5 pt-1.5">
+                  <p className="text-[#7eaaff] font-bold mb-1">Comparação</p>
+                  <p>Vel: <span className="text-[#7eaaff]">{hoveredComparePoint.speed_kmh?.toFixed(1)} km/h</span></p>
+                  <p className={`font-bold ${
+                    hoveredPoint.speed_kmh > hoveredComparePoint.speed_kmh ? 'text-delta-gain' : 'text-delta-loss'
+                  }`}>
+                    Δ {(hoveredPoint.speed_kmh - hoveredComparePoint.speed_kmh).toFixed(1)} km/h
+                  </p>
+                </div>
               )}
             </div>
           )}
 
-          {/* Dica de controles */}
+          {/* Legends */}
+          <div className="absolute top-3 left-3 space-y-1">
+            {matchedPreset && showRacingLine && (
+              <div className="flex items-center gap-1.5 bg-delta-bg/80 backdrop-blur-sm rounded-lg px-2 py-1 text-[10px] font-mono">
+                <div className="w-4 h-0 border-t-2 border-dashed border-[#ffaa00] opacity-50" />
+                <span className="text-delta-warn/70">Racing Line</span>
+              </div>
+            )}
+            {compareLap && (
+              <div className="flex items-center gap-1.5 bg-delta-bg/80 backdrop-blur-sm rounded-lg px-2 py-1 text-[10px] font-mono">
+                <div className="w-4 h-0.5 bg-[#7eaaff] rounded-full opacity-50" />
+                <span className="text-[#7eaaff]/70">Volta #{compareLap}</span>
+              </div>
+            )}
+          </div>
+
           <div className="absolute top-3 right-3 flex items-center gap-1.5 text-xs text-delta-muted/60 font-mono">
             <Info size={10} />
-            <span>Scroll = zoom · Arrastar = mover</span>
+            <span>Scroll=zoom · Arrastar=mover · Hover=sincroniza gráfico</span>
           </div>
         </div>
 
-        {/* ── Painel lateral de zonas ── */}
-        <div className="lg:w-72 glass-card p-4 overflow-y-auto space-y-4">
-          {/* Legenda de velocidade */}
-          <div>
-            <h3 className="text-xs uppercase tracking-widest text-delta-muted font-medium mb-3">
-              Velocidade
-            </h3>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="h-2 flex-1 rounded-full" style={{
-                background: 'linear-gradient(to right, rgb(30,100,255), rgb(0,200,255), rgb(0,255,100), rgb(255,220,0), rgb(255,50,50))'
-              }} />
-            </div>
+        {/* ═══ Painel lateral ═══ */}
+        <div className="lg:w-80 flex flex-col gap-4 min-h-0 overflow-y-auto">
+          {/* Velocidade legenda */}
+          <div className="glass-card p-4">
+            <h3 className="text-xs uppercase tracking-widest text-delta-muted font-medium mb-3">Velocidade</h3>
+            <div className="h-2 flex-1 rounded-full mb-1" style={{
+              background: 'linear-gradient(to right, rgb(30,100,255), rgb(0,200,255), rgb(0,255,100), rgb(255,220,0), rgb(255,50,50))'
+            }} />
             <div className="flex justify-between text-xs font-mono text-delta-muted">
               <span>{minSpeed.toFixed(0)} km/h</span>
               <span>{maxSpeed.toFixed(0)} km/h</span>
             </div>
           </div>
 
-          {/* Zonas de freada */}
-          <div>
-            <h3 className="text-xs uppercase tracking-widest text-delta-muted font-medium mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-delta-loss inline-block" />
-              Freadas ({zones.braking.length})
-            </h3>
-            <div className="space-y-2">
-              {zones.braking.map((z, i) => {
-                return (
-                  <div key={i} className="flex items-center justify-between py-2 px-3 rounded-xl bg-delta-surface/50 text-xs font-mono">
-                    <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-delta-loss/20 text-delta-loss flex items-center justify-center font-bold text-[10px]">
-                        {i+1}
-                      </span>
-                      <span className="text-delta-muted">{z.dist?.toFixed(0)}m</span>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-delta-text">{z.speedEntry?.toFixed(0)}→{z.speedExit?.toFixed(0)}</p>
-                      <p className="text-delta-loss text-[10px]">-{z.speedDrop?.toFixed(0)} km/h</p>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Preset info com curvas clicáveis */}
+          {matchedPreset && (
+            <div className="glass-card p-4">
+              <h3 className="text-xs uppercase tracking-widest text-delta-muted font-medium mb-3 flex items-center gap-2">
+                <Layers size={12} className="text-delta-accent" />
+                {matchedPreset.name}
+              </h3>
+              <p className="text-[10px] text-delta-muted mb-3">{matchedPreset.city} · {matchedPreset.length_m}m</p>
+              <div className="space-y-1">
+                {matchedPreset.curves.map((c, i) => (
+                  <button key={i}
+                    className={`w-full flex items-center justify-between py-1.5 px-2 rounded-lg text-xs font-mono transition-colors cursor-pointer ${
+                      hoveredDistance !== null && Math.abs(hoveredDistance - c.dist) < 150
+                        ? 'bg-delta-accent/10 text-delta-accent'
+                        : 'hover:bg-delta-surface/50 text-delta-warn'
+                    }`}
+                    onClick={() => setHoveredDistance(c.dist)}
+                    onMouseEnter={() => setHoveredDistance(c.dist)}
+                  >
+                    <span>{c.name}</span>
+                    <span className="text-delta-muted text-[10px]">{c.dist}m</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Pontos de aceleração */}
-          <div>
-            <h3 className="text-xs uppercase tracking-widest text-delta-muted font-medium mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-delta-gain inline-block" />
-              Acelerações ({zones.accelerating.length})
-            </h3>
-            <div className="space-y-2">
-              {zones.accelerating.slice(0, 8).map((z, i) => (
-                <div key={i} className="flex items-center justify-between py-2 px-3 rounded-xl bg-delta-surface/50 text-xs font-mono">
-                  <span className="text-delta-muted">{z.dist?.toFixed(0)}m</span>
-                  <span className="text-delta-gain">{z.speedApex?.toFixed(0)} km/h</span>
-                </div>
-              ))}
+          {/* Gráfico sincronizado */}
+          {pts.length > 0 && (
+            <div className="glass-card p-0 flex-1 min-h-[180px] overflow-hidden">
+              <SyncChart
+                pts1={telemetry}
+                pts2={compareTelemetry}
+                hoveredDistance={hoveredDistance}
+                onHoverDistance={setHoveredDistance}
+                label1={`#${selectedLap}`}
+                label2={compareLap ? `#${compareLap}` : null}
+              />
             </div>
-          </div>
+          )}
+
+          {/* Delta comparação */}
+          {compareLap && currentLapInfo && compareLapInfo && (
+            <div className="glass-card p-4">
+              <h3 className="text-xs uppercase tracking-widest text-delta-muted font-medium mb-3 flex items-center gap-2">
+                <GitCompare size={12} className="text-delta-accent" />
+                Comparação
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="text-center p-3 rounded-xl bg-delta-surface/50">
+                  <p className="text-[10px] text-delta-accent mb-1">Volta #{selectedLap}</p>
+                  <p className="font-mono font-bold text-delta-text">{formatTime(currentLapInfo.lap_time_s)}</p>
+                </div>
+                <div className="text-center p-3 rounded-xl bg-delta-surface/50">
+                  <p className="text-[10px] text-[#7eaaff] mb-1">Volta #{compareLap}</p>
+                  <p className="font-mono font-bold text-delta-text">{formatTime(compareLapInfo.lap_time_s)}</p>
+                </div>
+              </div>
+              <div className="mt-3 text-center">
+                <span className={`font-mono font-bold text-lg ${
+                  currentLapInfo.lap_time_s < compareLapInfo.lap_time_s ? 'text-delta-gain' : 'text-delta-loss'
+                }`}>
+                  Δ {(currentLapInfo.lap_time_s - compareLapInfo.lap_time_s) > 0 ? '+' : ''}
+                  {(currentLapInfo.lap_time_s - compareLapInfo.lap_time_s).toFixed(3)}s
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function formatTime(s) {
-  const m = Math.floor(s / 60);
-  const sec = (s % 60).toFixed(3);
-  return `${m}:${sec.padStart(6, '0')}`;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUBCOMPONENTES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function Selector({ value, onChange, children, muted }) {
+  return (
+    <div className="relative">
+      <select
+        className={`appearance-none bg-delta-card border border-delta-border rounded-xl px-4 py-2.5 pr-9 text-sm font-medium focus:outline-none focus:border-delta-accent/50 cursor-pointer ${
+          muted ? 'text-delta-muted' : 'text-delta-text'
+        }`}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      >
+        {children}
+      </select>
+      <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-delta-muted pointer-events-none" />
+    </div>
+  );
+}
+
+function ToggleBtn({ active, onClick, icon: Icon, label, activeColor }) {
+  return (
+    <button onClick={onClick}
+      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
+        active ? `bg-delta-surface ${activeColor}` : 'text-delta-muted hover:text-delta-text'
+      }`}
+    >
+      <Icon size={12} />
+      {label}
+    </button>
+  );
 }

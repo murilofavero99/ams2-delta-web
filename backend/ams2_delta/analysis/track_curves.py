@@ -16,6 +16,19 @@ from dataclasses import dataclass
 # Mapeamento de curvas por pista
 # Cada entrada: (distance_m_start, distance_m_end, nome_descritivo)
 TRACK_CURVES = {
+    "Interlagos": [
+        (0, 200, "Reta dos Boxes"),
+        (200, 500, "S do Senna (Curvas 1-2)"),
+        (500, 800, "Curva do Sol (Curva 3)"),
+        (800, 1200, "Reta Oposta"),
+        (1200, 1600, "Descida do Lago (Curvas 4-5-6-7)"),
+        (1600, 2100, "Ferradura (Curvas 8-9)"),
+        (2100, 2500, "Pinheirinho (Curva 10)"),
+        (2500, 2800, "Bico de Pato (Curva 11)"),
+        (2800, 3200, "Mergulho (Curvas 12-13)"),
+        (3200, 3700, "Junção (Curvas 14-15)"),
+        (3700, 4309, "Subida dos Boxes"),
+    ],
     "Montreal": [
         (0, 350, "Chicane Inicial (Turn 1-2)"),
         (350, 650, "Curva 2 (Turn 3)"),
