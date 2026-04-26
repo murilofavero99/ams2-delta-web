@@ -6,8 +6,8 @@ import re
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+
+from app.routers import sessions, analysis
 
 
 # ─── CORS dinâmico: aceita qualquer deploy da Vercel do projeto ───
@@ -27,18 +27,6 @@ def is_origin_allowed(origin: str) -> bool:
     if origin in STATIC_ORIGINS:
         return True
     return any(p.match(origin) for p in ALLOWED_ORIGIN_PATTERNS)
-
-
-class DynamicCORSMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        origin = request.headers.get("origin", "")
-        response = await call_next(request)
-        if origin and is_origin_allowed(origin):
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "*"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-        return response
 
 
 app = FastAPI(
