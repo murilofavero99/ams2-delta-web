@@ -4,5 +4,7 @@ pydantic
 requests
 numpy
 pandas
+pyarrow
+python-multipart
 anthropic
 plotly
