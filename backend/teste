@@ -1,0 +1,10 @@
+# save_coords.py — rode com: python save_coords.py
+import pandas as pd, json
+
+df = pd.read_parquet(r'C:\Users\Murilo\Downloads\ams2_delta_web_backend\backend\sessions\20260424_131133_teste_wr/telemetry.parquet')
+lap4 = df[df['current_lap'] == 4].sort_values('wall_time')
+coords = {col: lap4[col].tolist() for col in ['world_x','world_z','current_lap_distance','speed_kmh']}
+print(f"world_x: [{min(coords['world_x']):.1f}, {max(coords['world_x']):.1f}]")
+print(f"world_z: [{min(coords['world_z']):.1f}, {max(coords['world_z']):.1f}]")
+json.dump(coords, open('montreal_coords.json','w'))
+print(f"Saved {len(coords['world_x'])} points")
