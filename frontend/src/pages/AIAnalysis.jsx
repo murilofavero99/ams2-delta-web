@@ -10,9 +10,41 @@ import {
 // ─── Modelos disponíveis ──────────────────────────────────────────────────────
 const AI_MODELS = [
   {
+    id: 'gemini',
+    name: 'Gemini 1.5 Flash',
+    desc: 'Google AI — gratuito, rápido, ótima qualidade',
+    icon: Cloud,
+    speed: '3-8s',
+    quality: 92,
+    cost: 'R$ 0',
+    color: 'text-blue-400',
+    bg: 'bg-blue-400/10',
+    border: 'border-blue-400/30',
+    needsKey: true,
+    keyName: 'Gemini',
+    keyPlaceholder: 'AIza...',
+    keyUrl: 'aistudio.google.com/apikey',
+  },
+  {
+    id: 'groq',
+    name: 'Groq (Llama 3.3 70B)',
+    desc: 'Groq — Llama 70B, ultra rápido, gratuito',
+    icon: Zap,
+    speed: '1-3s',
+    quality: 90,
+    cost: 'R$ 0',
+    color: 'text-orange-400',
+    bg: 'bg-orange-400/10',
+    border: 'border-orange-400/30',
+    needsKey: true,
+    keyName: 'Groq',
+    keyPlaceholder: 'gsk_...',
+    keyUrl: 'console.groq.com/keys',
+  },
+  {
     id: 'ollama',
-    name: 'Ollama (Grátis)',
-    desc: 'Mistral 7B local — offline, sem custo',
+    name: 'Ollama (Local)',
+    desc: 'Mistral 7B — só funciona localmente',
     icon: Cpu,
     speed: '30-60s',
     quality: 70,
@@ -20,11 +52,12 @@ const AI_MODELS = [
     color: 'text-delta-accent',
     bg: 'bg-delta-accent/10',
     border: 'border-delta-accent/30',
+    localOnly: true,
   },
   {
     id: 'claude-sonnet',
     name: 'Claude Sonnet',
-    desc: 'Anthropic API — rápido, excelente qualidade',
+    desc: 'Anthropic API — pago, excelente qualidade',
     icon: Cloud,
     speed: '5-10s',
     quality: 95,
@@ -33,6 +66,9 @@ const AI_MODELS = [
     bg: 'bg-purple-400/10',
     border: 'border-purple-400/30',
     needsKey: true,
+    keyName: 'Anthropic',
+    keyPlaceholder: 'sk-ant-...',
+    keyUrl: 'console.anthropic.com',
   },
   {
     id: 'claude-opus',
@@ -46,13 +82,16 @@ const AI_MODELS = [
     bg: 'bg-amber-400/10',
     border: 'border-amber-400/30',
     needsKey: true,
+    keyName: 'Anthropic',
+    keyPlaceholder: 'sk-ant-...',
+    keyUrl: 'console.anthropic.com',
   },
 ];
 
 export default function AIAnalysis() {
   const [selectedSession, setSelectedSession] = useState(null);
   const [selectedLap, setSelectedLap] = useState(null);
-  const [selectedModel, setSelectedModel] = useState('ollama');
+  const [selectedModel, setSelectedModel] = useState('gemini');
   const [apiKey, setApiKey] = useState('');
 
   const { data: sessions } = useQuery({ queryKey: ['sessions'], queryFn: fetchSessions });
@@ -79,7 +118,7 @@ export default function AIAnalysis() {
   });
 
   const canAnalyze = selectedSession && selectedLap &&
-    (selectedModel === 'ollama' || apiKey.length > 10);
+    (modelInfo?.localOnly || (modelInfo?.needsKey && apiKey.length > 10) || (!modelInfo?.needsKey && !modelInfo?.localOnly));
 
   return (
     <div className="min-h-screen space-y-6">
@@ -190,22 +229,30 @@ export default function AIAnalysis() {
             })}
           </div>
 
-          {/* Chave da API (só pra Claude) */}
+          {/* Chave da API (pra modelos que precisam) */}
           {modelInfo?.needsKey && (
             <div className="space-y-2 animate-fade-in">
               <label className="text-xs text-delta-muted font-medium">
-                Chave da API Claude
+                Chave da API {modelInfo.keyName}
               </label>
               <input
                 type="password"
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
-                placeholder="sk-ant-..."
-                className="w-full bg-delta-surface border border-delta-border rounded-xl px-4 py-2.5 text-sm font-mono text-delta-text placeholder:text-delta-muted/40 focus:outline-none focus:border-purple-400/50"
+                placeholder={modelInfo.keyPlaceholder}
+                className="w-full bg-delta-surface border border-delta-border rounded-xl px-4 py-2.5 text-sm font-mono text-delta-text placeholder:text-delta-muted/40 focus:outline-none focus:border-delta-accent/50"
               />
               <p className="text-[10px] text-delta-muted">
-                Obtém em console.anthropic.com — não é guardada
+                Obtém em <a href={`https://${modelInfo.keyUrl}`} target="_blank" rel="noopener" className="text-delta-accent hover:underline">{modelInfo.keyUrl}</a> — não é guardada
               </p>
+            </div>
+          )}
+
+          {/* Aviso pro Ollama */}
+          {modelInfo?.localOnly && (
+            <div className="p-3 rounded-xl bg-delta-warn/10 border border-delta-warn/20 text-xs text-delta-warn animate-fade-in">
+              ⚠️ Ollama só funciona quando rodando localmente (<code className="font-mono text-[10px] bg-delta-bg/50 px-1.5 py-0.5 rounded">ollama serve</code>).
+              Na versão cloud, escolha Gemini ou Groq (gratuitos).
             </div>
           )}
         </div>

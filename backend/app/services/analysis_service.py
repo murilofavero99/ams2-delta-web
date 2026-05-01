@@ -107,6 +107,18 @@ class AnalysisService:
             analysis_text = self._call_ollama(prompt)
             cost = None
             tokens = None
+        elif ai_model == "gemini":
+            if not api_key:
+                raise ValueError("API key necessária para Gemini. Pegue grátis em aistudio.google.com/apikey")
+            analysis_text = self._call_gemini(prompt, api_key)
+            cost = 0.0  # gratuito no tier free
+            tokens = None
+        elif ai_model == "groq":
+            if not api_key:
+                raise ValueError("API key necessária para Groq. Pegue grátis em console.groq.com/keys")
+            analysis_text = self._call_groq(prompt, api_key)
+            cost = 0.0  # gratuito no tier free
+            tokens = None
         elif ai_model.startswith("claude"):
             if not api_key:
                 raise ValueError("API key necessária para Claude")
@@ -228,7 +240,7 @@ Evite falar sobre o jogo ou a pista em geral — foque APENAS nesta volta."""
                 self.OLLAMA_URL,
                 json={
                     "model": "mistral",
-                    "prompt": prompt[:12000],  # limita
+                    "prompt": prompt[:12000],
                     "stream": False,
                     "options": {"num_ctx": 4096},
                 },
@@ -237,7 +249,65 @@ Evite falar sobre o jogo ou a pista em geral — foque APENAS nesta volta."""
             response.raise_for_status()
             return response.json().get("response", "")
         except Exception as e:
-            return f"Erro ao chamar Ollama: {e}"
+            return f"Erro ao chamar Ollama: {e}\n\nO Ollama precisa estar rodando localmente. Esta opção não funciona na versão cloud."
+
+    def _call_gemini(self, prompt: str, api_key: str) -> str:
+        """Chama Google Gemini (gratuito até 15 req/min)."""
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+            response = requests.post(
+                url,
+                json={
+                    "contents": [{"parts": [{"text": prompt[:30000]}]}],
+                    "generationConfig": {
+                        "temperature": 0.7,
+                        "maxOutputTokens": 2048,
+                    },
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except requests.HTTPError as e:
+            err_msg = ""
+            try:
+                err_msg = e.response.json().get("error", {}).get("message", str(e))
+            except Exception:
+                err_msg = str(e)
+            return f"Erro ao chamar Gemini: {err_msg}"
+        except Exception as e:
+            return f"Erro ao chamar Gemini: {e}"
+
+    def _call_groq(self, prompt: str, api_key: str) -> str:
+        """Chama Groq (Llama 3.1 70B - ultra rápido, gratuito)."""
+        try:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt[:25000]}],
+                    "temperature": 0.7,
+                    "max_tokens": 2048,
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+        except requests.HTTPError as e:
+            err_msg = ""
+            try:
+                err_msg = e.response.json().get("error", {}).get("message", str(e))
+            except Exception:
+                err_msg = str(e)
+            return f"Erro ao chamar Groq: {err_msg}"
+        except Exception as e:
+            return f"Erro ao chamar Groq: {e}"
 
     def _call_claude(self, prompt: str, api_key: str, model: str) -> tuple[str, int]:
         """Chama Claude API."""

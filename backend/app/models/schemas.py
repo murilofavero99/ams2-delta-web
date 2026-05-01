@@ -81,8 +81,8 @@ class DeltaSummary(BaseModel):
 class AnalysisRequest(BaseModel):
     """Request para análise com IA."""
     lap_number: int
-    ai_model: str = Field(default="ollama", pattern="^(ollama|claude-sonnet|claude-opus)$")
-    api_key: Optional[str] = None  # só necessário pra Claude
+    ai_model: str = Field(default="gemini", pattern="^(ollama|gemini|groq|claude-sonnet|claude-opus)$")
+    api_key: Optional[str] = None  # necessário pra Claude/Gemini/Groq
 
 
 class AnalysisResponse(BaseModel):
