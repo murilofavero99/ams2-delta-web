@@ -185,7 +185,7 @@ Distância: {session.metadata.track_length_m:.0f}m
 Volta: #{lap_number}
 Tempo: {lap_time_str}
 {"🏆 MELHOR VOLTA" if is_fastest else ""}
-Pista completa: {lap_info.completeness_pct:.0f}% {"✓ Completa" if lap_info.completeness_pct >= 80 else "⚠ Incompleta"}{delta_info}
+Pista completa: {getattr(lap_info, 'completeness_pct', 100):.0f}% {"✓ Completa" if getattr(lap_info, 'completeness_pct', 100) >= 80 else "⚠ Incompleta"}{delta_info}
 
 ═══════════════════════════════════════════════════════
 CURVAS DETECTADAS ({len(curves)})
