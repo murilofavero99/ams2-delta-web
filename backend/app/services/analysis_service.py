@@ -5,16 +5,10 @@ Integra com Ollama e Claude para análise com IA.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Optional
 
 import anthropic
 import requests
-
-SHARED_PATH = Path(__file__).resolve().parents[3] / "shared"
-if str(SHARED_PATH) not in sys.path:
-    sys.path.insert(0, str(SHARED_PATH))
 
 from ams2_delta.analysis.session import load_session, compute_delta, summarize_delta
 from ams2_delta.analysis.curve_detection import detect_curves, estimate_ideal_speed

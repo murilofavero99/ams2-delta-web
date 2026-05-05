@@ -1,84 +1,68 @@
 """
 Service para gerenciar sessões gravadas.
 
-Reutiliza o código de análise do ams2_delta original.
+Modo dual:
+  - Se SUPABASE_URL + SUPABASE_KEY estão setadas → lê do Supabase
+  - Senão → lê de disco (modo legacy, requer sessions_dir)
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Optional
-
-# Adiciona o código original ao path
-SHARED_PATH = Path(__file__).resolve().parents[3] / "shared"
-if str(SHARED_PATH) not in sys.path:
-    sys.path.insert(0, str(SHARED_PATH))
 
 from ams2_delta.analysis.session import Session, load_session, list_sessions
 from ams2_delta.analysis.lap_validation import (
     get_best_segment, is_lap_complete, lap_completeness_stats,
 )
 
+from ..db import supabase_client, supabase_repo
 from ..models.schemas import (
     LapSummary, SessionMetadata, SessionResponse, TelemetryPoint,
 )
 
 
 class SessionService:
-    """Gerencia acesso a sessões gravadas."""
+    """Gerencia acesso a sessões gravadas (Supabase ou disco)."""
 
     def __init__(self, sessions_dir: Path):
         self.sessions_dir = sessions_dir
 
+    # ------------------------------------------------------------------ public
+
     def list_all(self) -> list[SessionResponse]:
-        """Lista todas as sessões disponíveis."""
-        session_dirs = list_sessions(self.sessions_dir)
-        results = []
-
-        for session_dir in session_dirs:
-            try:
-                session = load_session(session_dir)
-                results.append(self._session_to_response(session))
-            except Exception as e:
-                print(f"Erro ao carregar {session_dir}: {e}")
-                continue
-
-        return sorted(results, key=lambda s: s.metadata.started_at, reverse=True)
+        if supabase_client.is_enabled():
+            return self._list_all_supabase()
+        return self._list_all_disk()
 
     def get_by_id(self, session_id: str) -> Optional[SessionResponse]:
-        """Retorna uma sessão específica por ID."""
-        session_dir = self.sessions_dir / session_id
-        if not session_dir.exists():
-            return None
-
-        session = load_session(session_dir)
-        return self._session_to_response(session)
+        if supabase_client.is_enabled():
+            session = supabase_repo.load_full_session(session_id)
+            if session is None:
+                return None
+            return self._session_to_response(session)
+        return self._get_by_id_disk(session_id)
 
     def get_lap_telemetry(self, session_id: str, lap_number: int,
                           max_points: int = 5000) -> list[TelemetryPoint]:
-        """
-        Retorna telemetria de uma volta específica.
+        if supabase_client.is_enabled():
+            session = supabase_repo.load_full_session(session_id)
+        else:
+            session_dir = self.sessions_dir / session_id
+            if not session_dir.exists():
+                return []
+            session = load_session(session_dir)
 
-        Args:
-            max_points: limita número de pontos (downsampling pra mobile)
-        """
-        session_dir = self.sessions_dir / session_id
-        if not session_dir.exists():
+        if session is None:
             return []
-
-        session = load_session(session_dir)
         lap_df = session.lap_telemetry(lap_number)
-
         if lap_df.empty:
             return []
 
-        # Downsample se necessário (pra não explodir mobile com 20k pontos)
         df_list = lap_df.to_dict(orient='records')
         if len(df_list) > max_points:
             step = len(df_list) // max_points
             df_list = df_list[::step]
 
-        # Converte -> list[TelemetryPoint]
         points = []
         for row in df_list:
             points.append(TelemetryPoint(
@@ -98,8 +82,45 @@ class SessionService:
 
         return points
 
+    # ------------------------------------------------------------------ supabase
+
+    def _list_all_supabase(self) -> list[SessionResponse]:
+        results: list[SessionResponse] = []
+        for sid in supabase_repo.list_session_ids():
+            try:
+                session = supabase_repo.load_full_session(sid)
+                if session is None:
+                    continue
+                results.append(self._session_to_response(session))
+            except Exception as e:
+                print(f"Erro ao carregar {sid} do Supabase: {e}")
+                continue
+        return sorted(results, key=lambda s: s.metadata.started_at, reverse=True)
+
+    # ------------------------------------------------------------------ disco
+
+    def _list_all_disk(self) -> list[SessionResponse]:
+        session_dirs = list_sessions(self.sessions_dir)
+        results = []
+        for session_dir in session_dirs:
+            try:
+                session = load_session(session_dir)
+                results.append(self._session_to_response(session))
+            except Exception as e:
+                print(f"Erro ao carregar {session_dir}: {e}")
+                continue
+        return sorted(results, key=lambda s: s.metadata.started_at, reverse=True)
+
+    def _get_by_id_disk(self, session_id: str) -> Optional[SessionResponse]:
+        session_dir = self.sessions_dir / session_id
+        if not session_dir.exists():
+            return None
+        session = load_session(session_dir)
+        return self._session_to_response(session)
+
+    # ------------------------------------------------------------------ helpers
+
     def _session_to_response(self, session: Session) -> SessionResponse:
-        """Converte Session interna -> SessionResponse (JSON)."""
         valid_laps = session.valid_laps()
         fastest = session.fastest_lap()
 
@@ -107,7 +128,6 @@ class SessionService:
         for lap in valid_laps:
             lap_df = session.lap_telemetry(lap.lap_number)
             stats = lap_completeness_stats(lap_df, session.metadata.track_length_m)
-
             laps_summary.append(LapSummary(
                 lap_number=lap.lap_number,
                 lap_time_s=lap.lap_time_s,

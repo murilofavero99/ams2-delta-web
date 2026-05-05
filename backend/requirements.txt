@@ -8,3 +8,4 @@ pyarrow
 python-multipart
 anthropic
 plotly
+supabase>=2.7,<2.10

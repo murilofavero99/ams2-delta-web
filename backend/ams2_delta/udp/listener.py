@@ -349,6 +349,84 @@ def resolve_player_car(state: SessionState) -> None:
             print(f"[i] Classe detectada: {cls_name}")
 
 
+def upload_session_to_supabase(session_dir: Path, session_id: str) -> bool:
+    """
+    Tenta upload direto para o Supabase (Postgres + Storage), pulando o Railway.
+
+    Requer SUPABASE_URL e SUPABASE_KEY no ambiente. Retorna False (silenciosamente,
+    sem mensagens de erro) se as credenciais não estão configuradas, pra deixar o
+    chamador cair no fallback HTTP.
+    """
+    if not (os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")):
+        return False
+
+    db_path = session_dir / "session.db"
+    parquet_path = session_dir / "telemetry.parquet"
+    if not db_path.exists() or not parquet_path.exists():
+        print(f"[!] Upload Supabase abortado: arquivos não encontrados em {session_dir}")
+        return False
+
+    try:
+        import sqlite3 as _sqlite
+
+        # Importa o módulo do backend (mesmo projeto Python)
+        backend_dir = Path(__file__).resolve().parents[2]
+        if str(backend_dir) not in sys.path:
+            sys.path.insert(0, str(backend_dir))
+        from app.db import supabase_repo  # type: ignore
+
+        # Lê metadata + laps do session.db
+        conn = _sqlite.connect(db_path)
+        info = dict(conn.execute("SELECT key, value FROM session_info").fetchall())
+        lap_rows = conn.execute(
+            "SELECT lap_number, lap_time_s, sector1_s, sector2_s, sector3_s, invalidated FROM laps"
+        ).fetchall()
+        conn.close()
+
+        metadata = {
+            "session_id": info.get("session_id", session_id),
+            "started_at": info.get("started_at", ""),
+            "track_location": info.get("track_location", "unknown") or "unknown",
+            "track_variation": info.get("track_variation", "") or "",
+            "track_length_m": float(info.get("track_length_m", 0.0) or 0.0),
+            "num_samples": int(info.get("num_samples", 0) or 0),
+            "num_laps": int(info.get("num_laps", 0) or 0),
+            "car_name": info.get("car_name", "") or "",
+            "car_class_name": info.get("car_class_name", "") or "",
+            "car_class_id": int(info.get("car_class_id", 0) or 0),
+            "telemetry_path": f"{session_id}/telemetry.parquet",
+        }
+        laps = [
+            {
+                "session_id": session_id,
+                "lap_number": int(n),
+                "lap_time_s": float(t) if t is not None else None,
+                "sector1_s": float(s1) if s1 is not None else None,
+                "sector2_s": float(s2) if s2 is not None else None,
+                "sector3_s": float(s3) if s3 is not None else None,
+                "invalidated": int(inv or 0),
+            }
+            for (n, t, s1, s2, s3, inv) in lap_rows
+        ]
+
+        print(f"[*] Subindo direto para o Supabase...")
+        t0 = time.time()
+        ok_db = supabase_repo.upsert_session(metadata, laps)
+        ok_storage = supabase_repo.upload_telemetry_bytes(session_id, parquet_path.read_bytes())
+        elapsed = time.time() - t0
+
+        if ok_db and ok_storage:
+            print(f"[+] Upload Supabase concluído em {elapsed:.1f}s — disponível no app!")
+            return True
+
+        print(f"[!] Upload Supabase parcial após {elapsed:.1f}s "
+              f"(postgres={ok_db}, storage={ok_storage}) — caindo pro fallback HTTP")
+        return False
+    except Exception as e:
+        print(f"[!] Upload Supabase falhou ({e.__class__.__name__}: {e}) — caindo pro fallback HTTP")
+        return False
+
+
 def upload_session_to_cloud(session_dir: Path, session_id: str, upload_url: str,
                             timeout: int = 120) -> bool:
     """
@@ -539,9 +617,14 @@ def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
         print(f"[*] Gravando sessão...")
         session_dir = save_session(state, sessions_dir)
 
+        # Estratégia de upload:
+        # 1. Tenta Supabase direto (se SUPABASE_URL/KEY estão setadas)
+        # 2. Se não conseguir, faz HTTP POST pro Railway (fallback)
         if upload_url:
             print()
-            upload_session_to_cloud(session_dir, state.session_id, upload_url)
+            ok_supabase = upload_session_to_supabase(session_dir, state.session_id)
+            if not ok_supabase:
+                upload_session_to_cloud(session_dir, state.session_id, upload_url)
         else:
             print(f"[i] Para subir esta sessão para o cloud depois, rode: upload_sessions.bat")
 
