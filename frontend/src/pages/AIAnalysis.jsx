@@ -11,7 +11,7 @@ import {
 const AI_MODELS = [
   {
     id: 'gemini',
-    name: 'Gemini 1.5 Flash',
+    name: 'Gemini 2.0 Flash',
     desc: 'Google AI — gratuito, rápido, ótima qualidade',
     icon: Cloud,
     speed: '3-8s',

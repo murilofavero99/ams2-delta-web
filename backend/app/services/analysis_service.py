@@ -254,7 +254,7 @@ Evite falar sobre o jogo ou a pista em geral — foque APENAS nesta volta."""
     def _call_gemini(self, prompt: str, api_key: str) -> str:
         """Chama Google Gemini (gratuito até 15 req/min)."""
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
             response = requests.post(
                 url,
                 json={
