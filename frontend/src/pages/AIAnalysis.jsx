@@ -4,7 +4,7 @@ import { fetchSessions, analyzeWithAI } from '../api/client';
 import Loading from '../components/Loading';
 import {
   Bot, Cpu, Cloud, ChevronDown, Play, Star,
-  AlertTriangle, Target, Gauge, Zap, Shield,
+  AlertTriangle, Target, Gauge, Zap, Shield, Car,
 } from 'lucide-react';
 
 // ─── Modelos disponíveis ──────────────────────────────────────────────────────
@@ -272,6 +272,16 @@ export default function AIAnalysis() {
                 <InfoBox icon={Cpu} label="Modelo" value={modelInfo?.name || '—'} />
                 <InfoBox icon={Shield} label="Custo" value={modelInfo?.cost || '—'} />
               </div>
+              {currentSession?.metadata.car_name && (
+                <InfoBox
+                  icon={Car}
+                  label="Carro"
+                  value={
+                    currentSession.metadata.car_name +
+                    (currentSession.metadata.car_class_name ? ` · ${currentSession.metadata.car_class_name}` : '')
+                  }
+                />
+              )}
 
               {currentLap.is_fastest && (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-delta-warn/10 border border-delta-warn/20 text-xs text-delta-warn">

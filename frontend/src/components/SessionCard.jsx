@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Clock, Flag, Zap, ChevronRight } from 'lucide-react';
+import { MapPin, Clock, Flag, Zap, ChevronRight, Car } from 'lucide-react';
 
 /**
  * Card de sessão para a lista principal.
@@ -25,6 +25,15 @@ export default function SessionCard({ session, delay = 0 }) {
           <p className="text-sm text-delta-muted mt-0.5">
             {metadata.track_variation}
           </p>
+          {metadata.car_name && (
+            <p className="text-xs text-delta-accent mt-1.5 flex items-center gap-1.5">
+              <Car size={12} />
+              <span className="font-mono">{metadata.car_name}</span>
+              {metadata.car_class_name && (
+                <span className="text-delta-muted">· {metadata.car_class_name}</span>
+              )}
+            </p>
+          )}
         </div>
         <ChevronRight
           size={20}

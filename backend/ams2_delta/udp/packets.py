@@ -505,6 +505,106 @@ def parse_game_state(data: bytes) -> Optional[GameStatePacket]:
 
 
 # ----------------------------------------------------------------------------
+# sParticipantVehicleNamesData (packet_type = 8) — nome e classe de cada carro
+# Estrutura (packed, sem padding):
+#   PacketBase (12 bytes)
+#   sVehicleInfo[16]:
+#     unsigned short mIndex   (2)
+#     unsigned int   mClass   (4)
+#     char           mName[64](64)
+#   = 70 bytes/veículo × 16 = 1120
+# Total: 1132 bytes.
+# ----------------------------------------------------------------------------
+
+VEHICLE_NAMES_PACKET_SIZE = 1132
+VEHICLE_INFO_SIZE = 70
+VEHICLES_PER_PACKET = 16
+
+
+@dataclass
+class VehicleInfo:
+    index: int
+    class_id: int
+    name: str
+
+
+@dataclass
+class ParticipantVehicleNamesPacket:
+    header: PacketHeader
+    vehicles: list[VehicleInfo]
+
+
+def _decode_cstr(raw: bytes) -> str:
+    """Decodifica char[] truncando em NUL e usando UTF-8 com fallback latin-1."""
+    nul = raw.find(b"\x00")
+    if nul >= 0:
+        raw = raw[:nul]
+    try:
+        return raw.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return raw.decode("latin-1", errors="replace").strip()
+
+
+def parse_participant_vehicle_names(data: bytes) -> Optional[ParticipantVehicleNamesPacket]:
+    if len(data) < VEHICLE_NAMES_PACKET_SIZE:
+        return None
+    header = PacketHeader.unpack(data)
+    vehicles: list[VehicleInfo] = []
+    base = HEADER_SIZE
+    for i in range(VEHICLES_PER_PACKET):
+        off = base + i * VEHICLE_INFO_SIZE
+        idx, cls = struct.unpack_from("<HI", data, off)
+        name = _decode_cstr(data[off + 6: off + 70])
+        if name:
+            vehicles.append(VehicleInfo(index=idx, class_id=cls, name=name))
+    return ParticipantVehicleNamesPacket(header=header, vehicles=vehicles)
+
+
+# ----------------------------------------------------------------------------
+# sVehicleClassNamesData (packet_type = 8, mas tamanho diferente) — nomes das classes
+# Estrutura:
+#   PacketBase (12)
+#   sClassInfo[60]:
+#     unsigned int mClassIndex (4)
+#     char         mName[20]   (20)
+#   = 24 × 60 = 1440
+#   unsigned int sCurrentClassIndex (4)
+# Total: 1456 bytes.
+# ----------------------------------------------------------------------------
+
+VEHICLE_CLASS_NAMES_PACKET_SIZE = 1456
+CLASS_INFO_SIZE = 24
+CLASSES_PER_PACKET = 60
+
+
+@dataclass
+class VehicleClassInfo:
+    class_id: int
+    name: str
+
+
+@dataclass
+class VehicleClassNamesPacket:
+    header: PacketHeader
+    classes: list[VehicleClassInfo]
+
+
+def parse_vehicle_class_names(data: bytes) -> Optional[VehicleClassNamesPacket]:
+    if len(data) < VEHICLE_CLASS_NAMES_PACKET_SIZE:
+        return None
+    header = PacketHeader.unpack(data)
+    classes: list[VehicleClassInfo] = []
+    base = HEADER_SIZE
+    for i in range(CLASSES_PER_PACKET):
+        off = base + i * CLASS_INFO_SIZE
+        (cls_idx,) = struct.unpack_from("<I", data, off)
+        name = _decode_cstr(data[off + 4: off + 24])
+        if name:
+            classes.append(VehicleClassInfo(class_id=cls_idx, name=name))
+    return VehicleClassNamesPacket(header=header, classes=classes)
+
+
+# ----------------------------------------------------------------------------
 # Dispatcher: recebe bytes, decide tipo e parseia
 # ----------------------------------------------------------------------------
 
@@ -532,8 +632,15 @@ def parse_packet(data: bytes):
             return parse_race_data(data)
         elif ptype == PacketType.GAME_STATE:
             return parse_game_state(data)
+        elif ptype == PacketType.PARTICIPANT_VEHICLE_NAMES:
+            # Mesmo packet_type=8 carrega 2 estruturas distintas, diferenciadas
+            # pelo tamanho: 1132 = ParticipantVehicleNames, 1456 = VehicleClassNames
+            if len(data) >= VEHICLE_CLASS_NAMES_PACKET_SIZE:
+                return parse_vehicle_class_names(data)
+            if len(data) >= VEHICLE_NAMES_PACKET_SIZE:
+                return parse_participant_vehicle_names(data)
+            return None
         else:
-            # Tipos 2, 5, 6, 7, 8 — ignorados no MVP
             return None
     except struct.error:
         return None

@@ -126,6 +126,8 @@ class SessionService:
                 track_length_m=session.metadata.track_length_m,
                 num_samples=session.metadata.num_samples,
                 num_laps=session.metadata.num_laps,
+                car_name=getattr(session.metadata, "car_name", "") or "",
+                car_class_name=getattr(session.metadata, "car_class_name", "") or "",
             ),
             laps=laps_summary,
         )

@@ -34,6 +34,7 @@ DEFAULT_UPLOAD_URL = "https://ams2-delta-web-production.up.railway.app"
 from ams2_delta.udp.packets import (
     MAX_PACKET_SIZE, UDP_PORT,
     TelemetryPacket, TimingsPacket, RaceDataPacket, GameStatePacket,
+    ParticipantVehicleNamesPacket, VehicleClassNamesPacket,
     parse_packet,
 )
 
@@ -61,11 +62,21 @@ class SessionState:
     track_variation: str = ""
     track_length_m: float = 0.0
 
+    # Carro do jogador (auto-detect via UDP, com possibilidade de override CLI)
+    car_name: str = ""
+    car_class_id: int = 0
+    car_class_name: str = ""
+    car_name_override: bool = False  # se True, ignora auto-detect (veio da flag --car)
+
     # Buffer de samples de telemetria (cada sample = dict pronto p/ DataFrame)
     telemetry_buffer: list[dict] = field(default_factory=list)
 
     # Últimas leituras dos pacotes não-telemetria (pra enriquecer samples)
     last_timings: Optional[TimingsPacket] = None
+
+    # Tabelas de lookup recebidas via PARTICIPANT_VEHICLE_NAMES (tipo 8)
+    vehicles_by_index: dict[int, "tuple[str, int]"] = field(default_factory=dict)  # car_index -> (name, class_id)
+    class_names_by_id: dict[int, str] = field(default_factory=dict)                # class_id -> class_name
 
     # Laps fechados
     completed_laps: list[LapInfo] = field(default_factory=list)
@@ -279,6 +290,9 @@ def save_session(state: SessionState, sessions_dir: Path) -> Path:
             ("track_length_m", str(state.track_length_m)),
             ("num_samples", str(len(state.telemetry_buffer))),
             ("num_laps", str(len(state.completed_laps))),
+            ("car_name", state.car_name),
+            ("car_class_name", state.car_class_name),
+            ("car_class_id", str(state.car_class_id)),
         ]
     )
 
@@ -297,6 +311,42 @@ def save_session(state: SessionState, sessions_dir: Path) -> Path:
     print(f"[+] Metadados gravados em {db_path}")
 
     return session_dir
+
+
+def resolve_player_car(state: SessionState) -> None:
+    """
+    Tenta cruzar dados do TimingsPacket (local_participant_index -> car_index)
+    com a tabela vehicles_by_index para determinar nome/classe do carro do jogador.
+
+    Não faz nada se o usuário já passou --car (override) ou se ainda não há dados
+    suficientes. Idempotente — pode ser chamado várias vezes.
+    """
+    if state.car_name_override:
+        return
+    if not state.last_timings or not state.vehicles_by_index:
+        return
+
+    local = state.last_timings.local_participant()
+    if local is None:
+        return
+
+    info = state.vehicles_by_index.get(local.car_index)
+    if info is None:
+        return
+
+    name, class_id = info
+    if name and name != state.car_name:
+        state.car_name = name
+        state.car_class_id = class_id
+        state.car_class_name = state.class_names_by_id.get(class_id, "")
+        cls_str = f" ({state.car_class_name})" if state.car_class_name else ""
+        print(f"[i] Carro detectado: {state.car_name}{cls_str}")
+    elif class_id and not state.car_class_name:
+        # Nome já estava certo, mas classe pode ter chegado depois
+        cls_name = state.class_names_by_id.get(class_id, "")
+        if cls_name:
+            state.car_class_name = cls_name
+            print(f"[i] Classe detectada: {cls_name}")
 
 
 def upload_session_to_cloud(session_dir: Path, session_id: str, upload_url: str,
@@ -365,10 +415,14 @@ def upload_session_to_cloud(session_dir: Path, session_id: str, upload_url: str,
 # ----------------------------------------------------------------------------
 
 def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
-        bind_ip: str = "0.0.0.0", upload_url: Optional[str] = None) -> None:
+        bind_ip: str = "0.0.0.0", upload_url: Optional[str] = None,
+        car_override: Optional[str] = None) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_id = f"{timestamp}_{session_name}"
     state = SessionState(session_id=session_id, started_at=timestamp)
+    if car_override:
+        state.car_name = car_override
+        state.car_name_override = True
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -387,6 +441,10 @@ def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
 
     print(f"[*] Ouvindo AMS2 em {bind_ip}:{port}")
     print(f"[*] Sessão: {session_id}")
+    if car_override:
+        print(f"[*] Carro (manual): {car_override}")
+    else:
+        print(f"[*] Carro: aguardando auto-detect via UDP...")
     if upload_url:
         print(f"[*] Upload automático ativado: {upload_url}")
     else:
@@ -398,7 +456,8 @@ def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
 
     # Contadores por tipo de pacote para diagnóstico
     packet_counts = {"telemetry": 0, "timings": 0, "race_data": 0,
-                     "game_state": 0, "unknown": 0, "parse_error": 0}
+                     "game_state": 0, "vehicle_names": 0, "class_names": 0,
+                     "unknown": 0, "parse_error": 0}
     start_time = time.time()
 
     try:
@@ -435,6 +494,19 @@ def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
                 packet_counts["timings"] += 1
                 state.last_timings = pkt
                 detect_lap_completion(state, pkt)
+                resolve_player_car(state)
+
+            elif isinstance(pkt, ParticipantVehicleNamesPacket):
+                packet_counts["vehicle_names"] += 1
+                for v in pkt.vehicles:
+                    state.vehicles_by_index[v.index] = (v.name, v.class_id)
+                resolve_player_car(state)
+
+            elif isinstance(pkt, VehicleClassNamesPacket):
+                packet_counts["class_names"] += 1
+                for c in pkt.classes:
+                    state.class_names_by_id[c.class_id] = c.name
+                resolve_player_car(state)
 
             elif isinstance(pkt, RaceDataPacket):
                 packet_counts["race_data"] += 1
@@ -458,6 +530,12 @@ def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
         for ptype, count in packet_counts.items():
             rate = count / elapsed if elapsed > 0 else 0
             print(f"      {ptype:15s}: {count:>6} ({rate:5.1f} Hz)")
+        if state.car_name:
+            origin = "manual" if state.car_name_override else "auto"
+            cls_str = f" ({state.car_class_name})" if state.car_class_name else ""
+            print(f"[*] Carro: {state.car_name}{cls_str} [{origin}]")
+        else:
+            print(f"[!] Carro NÃO identificado — passe --car \"Nome do carro\" pra próxima")
         print(f"[*] Gravando sessão...")
         session_dir = save_session(state, sessions_dir)
 
@@ -478,6 +556,8 @@ def main() -> None:
                         help=f"URL do backend cloud para upload automático (default: env AMS2_UPLOAD_URL ou {DEFAULT_UPLOAD_URL})")
     parser.add_argument("--no-upload", action="store_true",
                         help="Desativa upload automático após Ctrl+C")
+    parser.add_argument("--car", default=None,
+                        help="Nome do carro (override manual). Se omitido, auto-detect via UDP.")
     args = parser.parse_args()
 
     sessions_dir = Path(args.sessions_dir).resolve()
@@ -488,7 +568,7 @@ def main() -> None:
     else:
         upload_url = args.upload_url or os.environ.get("AMS2_UPLOAD_URL") or DEFAULT_UPLOAD_URL
 
-    run(args.name, sessions_dir, args.port, upload_url=upload_url)
+    run(args.name, sessions_dir, args.port, upload_url=upload_url, car_override=args.car)
 
 
 if __name__ == "__main__":

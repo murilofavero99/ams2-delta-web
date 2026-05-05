@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { ArrowLeft, MapPin, Ruler, Flag, Timer, Gauge, Zap } from 'lucide-react';
+import { ArrowLeft, MapPin, Ruler, Flag, Timer, Gauge, Zap, Car } from 'lucide-react';
 import { fetchSession, fetchLapTelemetry } from '../api/client';
 import MetricCard from '../components/MetricCard';
 import LapSelector from '../components/LapSelector';
@@ -59,6 +59,15 @@ export default function SessionDetail() {
               {metadata.track_location}
             </h1>
             <p className="text-delta-muted mt-1">{metadata.track_variation}</p>
+            {metadata.car_name && (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-delta-accent">
+                <Car size={14} />
+                <span className="font-mono">{metadata.car_name}</span>
+                {metadata.car_class_name && (
+                  <span className="text-delta-muted">· {metadata.car_class_name}</span>
+                )}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-6 text-sm text-delta-muted">

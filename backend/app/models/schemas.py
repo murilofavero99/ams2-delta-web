@@ -20,6 +20,8 @@ class SessionMetadata(BaseModel):
     track_length_m: float
     num_samples: int
     num_laps: int
+    car_name: str = ""
+    car_class_name: str = ""
 
 
 class LapSummary(BaseModel):

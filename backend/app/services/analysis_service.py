@@ -186,13 +186,29 @@ Delta vs Melhor Volta:
   • Maior ganho: {delta_summary.max_gain_s:.3f}s
 """
 
-        prompt = f"""Você é um especialista em sim-racing do jogo Automobilista 2. 
-Analise esta volta específica e forneça feedback técnico e actionable sobre a pilotagem.
+        car_name = getattr(session.metadata, "car_name", "") or ""
+        car_class = getattr(session.metadata, "car_class_name", "") or ""
+        if car_name:
+            car_line = f"Carro: {car_name}" + (f" ({car_class})" if car_class else "")
+            car_guidance = (
+                "\nLEVE EM CONTA O CARRO ACIMA: características como potência, posição do "
+                "motor (dianteiro/traseiro/central), tração, peso, downforce e tipo de "
+                "pneu mudam drasticamente pontos de frenagem, traçado e gestão do throttle. "
+                "Quando relevante, justifique recomendações com base no comportamento "
+                "esperado deste carro especificamente.\n"
+            )
+        else:
+            car_line = "Carro: não identificado"
+            car_guidance = ""
 
+        prompt = f"""Você é um especialista em sim-racing do jogo Automobilista 2.
+Analise esta volta específica e forneça feedback técnico e actionable sobre a pilotagem.
+{car_guidance}
 ═══════════════════════════════════════════════════════
 DADOS DA VOLTA
 ═══════════════════════════════════════════════════════
 Pista: {session.metadata.track_location} ({session.metadata.track_variation})
+{car_line}
 Distância: {session.metadata.track_length_m:.0f}m
 Volta: #{lap_number}
 Tempo: {lap_time_str}

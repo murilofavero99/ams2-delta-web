@@ -41,6 +41,8 @@ class SessionMetadata:
     track_length_m: float
     num_samples: int
     num_laps: int
+    car_name: str = ""
+    car_class_name: str = ""
 
 
 @dataclass
@@ -125,6 +127,8 @@ def load_session(session_dir: Path) -> Session:
         track_length_m=float(info_rows.get("track_length_m", 0.0) or 0.0),
         num_samples=int(info_rows.get("num_samples", 0) or 0),
         num_laps=int(info_rows.get("num_laps", 0) or 0),
+        car_name=info_rows.get("car_name", "") or "",
+        car_class_name=info_rows.get("car_class_name", "") or "",
     )
 
     # Laps
