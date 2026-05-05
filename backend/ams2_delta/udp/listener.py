@@ -16,6 +16,7 @@ Pressione Ctrl+C para finalizar e gravar.
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import sqlite3
 import sys
@@ -26,6 +27,9 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import requests
+
+DEFAULT_UPLOAD_URL = "https://ams2-delta-web-production.up.railway.app"
 
 from ams2_delta.udp.packets import (
     MAX_PACKET_SIZE, UDP_PORT,
@@ -295,12 +299,73 @@ def save_session(state: SessionState, sessions_dir: Path) -> Path:
     return session_dir
 
 
+def upload_session_to_cloud(session_dir: Path, session_id: str, upload_url: str,
+                            timeout: int = 120) -> bool:
+    """
+    Faz upload da sessão (session.db + telemetry.parquet) para o backend cloud.
+    Retorna True em sucesso, False em falha. Nunca lança exceção.
+    """
+    db_path = session_dir / "session.db"
+    parquet_path = session_dir / "telemetry.parquet"
+
+    if not db_path.exists() or not parquet_path.exists():
+        print(f"[!] Upload abortado: arquivos da sessão não encontrados em {session_dir}")
+        return False
+
+    endpoint = f"{upload_url.rstrip('/')}/sessions/upload"
+    print(f"[*] Enviando sessão para {endpoint} ...")
+    print(f"      session.db        : {db_path.stat().st_size / 1024:.1f} KB")
+    print(f"      telemetry.parquet : {parquet_path.stat().st_size / 1024:.1f} KB")
+
+    t0 = time.time()
+    try:
+        with open(db_path, "rb") as fdb, open(parquet_path, "rb") as fpq:
+            files = {
+                "session_db": ("session.db", fdb, "application/octet-stream"),
+                "telemetry": ("telemetry.parquet", fpq, "application/octet-stream"),
+            }
+            resp = requests.post(
+                endpoint,
+                params={"session_id": session_id},
+                files=files,
+                timeout=timeout,
+            )
+        elapsed = time.time() - t0
+
+        if resp.status_code == 200:
+            print(f"[+] Upload concluído em {elapsed:.1f}s — sessão disponível no app cloud!")
+            return True
+
+        print(f"[!] Upload FALHOU (HTTP {resp.status_code}) após {elapsed:.1f}s")
+        try:
+            print(f"      Resposta: {resp.json()}")
+        except Exception:
+            print(f"      Resposta: {resp.text[:500]}")
+        print(f"[!] A sessão continua salva localmente em {session_dir}")
+        print(f"[!] Você pode tentar reenviar depois com: upload_sessions.bat")
+        return False
+
+    except requests.exceptions.Timeout:
+        print(f"[!] Upload FALHOU: timeout após {timeout}s. Verifique sua conexão.")
+        print(f"[!] A sessão continua salva localmente em {session_dir}")
+        return False
+    except requests.exceptions.ConnectionError as e:
+        print(f"[!] Upload FALHOU: erro de conexão ({e.__class__.__name__})")
+        print(f"      O Railway está online? URL: {upload_url}")
+        print(f"[!] A sessão continua salva localmente em {session_dir}")
+        return False
+    except Exception as e:
+        print(f"[!] Upload FALHOU: {e.__class__.__name__}: {e}")
+        print(f"[!] A sessão continua salva localmente em {session_dir}")
+        return False
+
+
 # ----------------------------------------------------------------------------
 # Loop principal
 # ----------------------------------------------------------------------------
 
 def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
-        bind_ip: str = "0.0.0.0") -> None:
+        bind_ip: str = "0.0.0.0", upload_url: Optional[str] = None) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_id = f"{timestamp}_{session_name}"
     state = SessionState(session_id=session_id, started_at=timestamp)
@@ -322,6 +387,10 @@ def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
 
     print(f"[*] Ouvindo AMS2 em {bind_ip}:{port}")
     print(f"[*] Sessão: {session_id}")
+    if upload_url:
+        print(f"[*] Upload automático ativado: {upload_url}")
+    else:
+        print(f"[*] Upload automático: desativado")
     print(f"[*] Ctrl+C para finalizar e salvar\n")
 
     last_log_count = 0
@@ -390,7 +459,13 @@ def run(session_name: str, sessions_dir: Path, port: int = UDP_PORT,
             rate = count / elapsed if elapsed > 0 else 0
             print(f"      {ptype:15s}: {count:>6} ({rate:5.1f} Hz)")
         print(f"[*] Gravando sessão...")
-        save_session(state, sessions_dir)
+        session_dir = save_session(state, sessions_dir)
+
+        if upload_url:
+            print()
+            upload_session_to_cloud(session_dir, state.session_id, upload_url)
+        else:
+            print(f"[i] Para subir esta sessão para o cloud depois, rode: upload_sessions.bat")
 
 
 def main() -> None:
@@ -399,12 +474,21 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=UDP_PORT, help=f"Porta UDP (default {UDP_PORT})")
     parser.add_argument("--sessions-dir", default="sessions",
                         help="Pasta onde as sessões serão gravadas")
+    parser.add_argument("--upload-url", default=None,
+                        help=f"URL do backend cloud para upload automático (default: env AMS2_UPLOAD_URL ou {DEFAULT_UPLOAD_URL})")
+    parser.add_argument("--no-upload", action="store_true",
+                        help="Desativa upload automático após Ctrl+C")
     args = parser.parse_args()
 
     sessions_dir = Path(args.sessions_dir).resolve()
     sessions_dir.mkdir(parents=True, exist_ok=True)
 
-    run(args.name, sessions_dir, args.port)
+    if args.no_upload:
+        upload_url = None
+    else:
+        upload_url = args.upload_url or os.environ.get("AMS2_UPLOAD_URL") or DEFAULT_UPLOAD_URL
+
+    run(args.name, sessions_dir, args.port, upload_url=upload_url)
 
 
 if __name__ == "__main__":
