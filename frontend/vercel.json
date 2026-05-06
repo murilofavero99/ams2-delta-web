@@ -1,0 +1,6 @@
+{
+  "buildCommand": "rm -rf node_modules && npm install && node node_modules/vite/bin/vite.js build",
+  "outputDirectory": "dist",
+  "installCommand": "echo skip",
+  "framework": null
+}

@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd frontend && rm -rf node_modules && npm install && node node_modules/vite/bin/vite.js build",
+  "buildCommand": "if [ -d frontend ]; then cd frontend; fi && rm -rf node_modules && npm install && node node_modules/vite/bin/vite.js build",
   "outputDirectory": "frontend/dist",
   "installCommand": "echo skip",
   "framework": null
