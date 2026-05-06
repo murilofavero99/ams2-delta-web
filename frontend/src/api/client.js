@@ -42,6 +42,13 @@ export function fetchDelta(sessionId, lap1, lap2) {
   return fetchJSON(`/analysis/${sessionId}/delta/${lap1}/${lap2}`);
 }
 
+/** Telemetria ideal (sintética) de uma volta */
+export function fetchIdealLapTelemetry(sessionId, lapNumber, maxPoints = 3000) {
+  return fetchJSON(
+    `/analysis/${sessionId}/laps/${lapNumber}/ideal-telemetry?max_points=${maxPoints}`
+  );
+}
+
 /** Análise com IA */
 export function analyzeWithAI(sessionId, lapNumber, aiModel = 'ollama', apiKey = null) {
   return fetchJSON(`/analysis/ai?session_id=${sessionId}`, {

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { fetchSessions, analyzeWithAI } from '../api/client';
+import { fetchSessions, analyzeWithAI, fetchLapTelemetry, fetchIdealLapTelemetry } from '../api/client';
 import Loading from '../components/Loading';
+import TelemetryCharts from '../components/TelemetryCharts';
 import {
   Bot, Cpu, Cloud, ChevronDown, Play, Star,
-  AlertTriangle, Target, Gauge, Zap, Shield, Car,
+  AlertTriangle, Target, Gauge, Zap, Shield, Car, Sparkles,
 } from 'lucide-react';
 
 // ─── Modelos disponíveis ──────────────────────────────────────────────────────
@@ -116,6 +117,22 @@ export default function AIAnalysis() {
   const mutation = useMutation({
     mutationFn: () => analyzeWithAI(selectedSession, selectedLap, selectedModel, apiKey || null),
   });
+
+  // Mutation pra gerar volta ideal (busca telemetria real + ideal em paralelo)
+  const idealMutation = useMutation({
+    mutationFn: async () => {
+      const [real, ideal] = await Promise.all([
+        fetchLapTelemetry(selectedSession, selectedLap, 3000),
+        fetchIdealLapTelemetry(selectedSession, selectedLap, 3000),
+      ]);
+      return { real, ideal };
+    },
+  });
+
+  // Reseta volta ideal ao trocar de volta/sessão
+  useEffect(() => {
+    idealMutation.reset();
+  }, [selectedSession, selectedLap]);
 
   const canAnalyze = selectedSession && selectedLap &&
     (modelInfo?.localOnly || (modelInfo?.needsKey && apiKey.length > 10) || (!modelInfo?.needsKey && !modelInfo?.localOnly));
@@ -344,6 +361,63 @@ export default function AIAnalysis() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Volta Ideal (sobreposição gráfica) ── */}
+      {selectedSession && selectedLap && (
+        <div className="glass-card p-6 animate-slide-up">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <h2 className="font-display font-semibold text-lg text-delta-text flex items-center gap-2">
+                <Sparkles size={18} className="text-delta-warn" />
+                Volta Ideal · Sobreposição Gráfica
+              </h2>
+              <p className="text-xs text-delta-muted mt-1">
+                Gera uma volta sintética com a velocidade ideal nas curvas (física GT3) pra você ver
+                onde dá pra ganhar tempo. Volta real (linha cheia) vs ideal (tracejada).
+              </p>
+            </div>
+            <button
+              onClick={() => idealMutation.mutate()}
+              disabled={idealMutation.isPending}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-display font-semibold text-sm transition-all ${
+                idealMutation.isPending
+                  ? 'bg-delta-border text-delta-muted cursor-not-allowed'
+                  : 'bg-delta-warn/15 text-delta-warn border border-delta-warn/30 hover:bg-delta-warn/25 active:scale-95'
+              }`}
+            >
+              {idealMutation.isPending ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-delta-warn/30 border-t-delta-warn rounded-full animate-spin" />
+                  Gerando...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} />
+                  {idealMutation.isSuccess ? 'Regenerar' : 'Gerar Volta Ideal'}
+                </>
+              )}
+            </button>
+          </div>
+
+          {idealMutation.isError && (
+            <div className="mt-4 p-3 rounded-xl bg-delta-loss/10 border border-delta-loss/20 text-xs text-delta-loss">
+              Erro ao gerar volta ideal: {idealMutation.error?.message}
+            </div>
+          )}
+
+          {idealMutation.isSuccess && idealMutation.data?.real?.length > 0 && (
+            <div className="mt-6">
+              <TelemetryCharts
+                telemetry={idealMutation.data.real}
+                compareTelemetry={idealMutation.data.ideal}
+                lapLabel={`Volta #${selectedLap} (real)`}
+                compareLapLabel="Volta Ideal (sintética)"
+                showCurveLabels={false}
+              />
+            </div>
+          )}
         </div>
       )}
 

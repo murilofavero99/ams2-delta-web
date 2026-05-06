@@ -5,17 +5,19 @@ POST /analysis/ai - análise com IA
 GET /analysis/{session_id}/delta/{lap1}/{lap2} - delta entre voltas
 """
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
-from ..models.schemas import AnalysisRequest, AnalysisResponse, CurveInfo, DeltaSummary
+from ..models.schemas import AnalysisRequest, AnalysisResponse, CurveInfo, DeltaSummary, TelemetryPoint
 from ..services.analysis_service import AnalysisService
+from ..services.ideal_lap_service import IdealLapService
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 SESSIONS_DIR = Path("sessions").resolve()
 analysis_service = AnalysisService(SESSIONS_DIR)
+ideal_lap_service = IdealLapService(SESSIONS_DIR)
 
 
 @router.post("/ai", response_model=AnalysisResponse)
@@ -41,6 +43,29 @@ async def analyze_with_ai(session_id: str, request: AnalysisRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na análise: {e}")
+
+
+@router.get("/{session_id}/laps/{lap_number}/ideal-telemetry",
+            response_model=List[TelemetryPoint])
+async def get_ideal_lap_telemetry(
+    session_id: str,
+    lap_number: int,
+    max_points: int = Query(default=3000, ge=100, le=10000),
+):
+    """
+    Gera telemetria de uma "volta ideal" sintética sobre a volta indicada.
+
+    Algoritmo determinístico (sem IA): usa as curvas detectadas e a
+    velocidade ideal teórica (física GT3) pra construir o perfil de
+    speed/brake/throttle que o piloto deveria buscar. Eixo de distância
+    e world_x/world_z são preservados pra alinhar a sobreposição.
+    """
+    try:
+        return ideal_lap_service.generate(session_id, lap_number, max_points)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar volta ideal: {e}")
 
 
 @router.get("/{session_id}/delta/{lap1}/{lap2}")
